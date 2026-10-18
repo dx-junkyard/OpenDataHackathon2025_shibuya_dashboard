@@ -43,7 +43,18 @@ def search(kpi: Dict[str, Any], catalog: List[Dict[str, Any]]) -> Dict[str, Any]
     """Only datasets that measure the KPI directly are proposed.
 
     Adopted from the v2 candidate after probe-agent shadow comparison (System 6,
-    shadow results 1/5/9/13: v2 dropped unrelated datasets in all 4 cases)."""
+    shadow results 1/5/9/13: v2 dropped unrelated datasets in all 4 cases).
+
+    probe-agent:
+      role: KPI候補に関連するオープンデータ探索を行うエージェント入口
+      capability: 根拠付きKPIダッシュボードを公開する
+      system_purpose: 課題カードに対応するKPI候補とデータ根拠を見つけ、追跡ダッシュボード公開の材料を揃える
+      probe_value: KPI選定から公開までの不足していた詳細フローのうち、データ検索段階の実装接点として重要
+      element_type: capability
+      operation_kind: analysis
+      consumers: [apps.api.app.routes.data.search_datasets, apps.api.app.routes.data.propose_shaping]
+      state_effects: [external-api]
+    """
     out = llm.complete_json(SYSTEM, _catalog_prompt(kpi, catalog), SCHEMA, "dataset_candidates")
     out["candidates"] = [{"dataset_id": c["dataset_id"], "reason": c["reason"]} for c in out["candidates"] if c["relevance"] == "direct"]
     return _known(out, catalog)

@@ -45,4 +45,15 @@ SCHEMA = llm.obj(
 
 @observed("issue-card-agent")
 def draft(context: str) -> Dict[str, Any]:
+    """
+    probe-agent:
+      role: 会話や元文脈から課題カード下書きを生成するAIエージェント入口
+      capability: 会話やコミュニティから課題候補・課題カードへ昇格させる
+      system_purpose: 関心や対話を根拠付きの構造化課題へ整理し、人の採用判断へ渡す
+      probe_value: AI生成物を候補として提示する中心であり、共通承認パターンに接続する前段の品質を確認できる
+      element_type: capability
+      operation_kind: analysis
+      consumers: [apps.api.app.routes.issues.create_draft, apps.api.app.routes.issues.create_issue_card]
+      state_effects: [external-api]
+    """
     return llm.complete_json(SYSTEM, context, SCHEMA, "issue_card_draft")

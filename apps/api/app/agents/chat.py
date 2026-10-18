@@ -35,7 +35,18 @@ SCHEMA = llm.obj(
 
 @observed("chat-agent")
 def respond(article: Dict[str, Any] | None, history: List[Dict[str, str]]) -> Dict[str, Any]:
-    """Return {reply, organization[]} for the latest user turn in `history`."""
+    """Return {reply, organization[]} for the latest user turn in `history`.
+
+    probe-agent:
+      role: ニュース文脈を保ったAI対話応答を生成するエージェント入口
+      capability: ニュース閲覧から文脈保持されたAI対話へ入る
+      system_purpose: ニュースを起点に関心を引き出し、思考整理の入口を提供して課題化の循環へ接続する
+      probe_value: 代表フローの最初のAI接点であり、記事文脈の保持、AI応答可否、障害時の退避挙動を確認する価値が高い
+      element_type: capability
+      operation_kind: analysis
+      consumers: [apps.api.app.routes.news.post_message, apps.api.app.routes.news.create_conversation]
+      state_effects: [external-api]
+    """
     lines = []
     if article:
         lines.append(f"[発言0: 記事] {article['title']}\n{article['body']}")
