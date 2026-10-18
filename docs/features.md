@@ -285,3 +285,35 @@ mapping の接続点とし、実装後は代表シナリオ（[UX §5](ux.md#5-�
 
 MVP の完了は [UX §5](ux.md#5-代表シナリオでの検証) の実測で判断する。機能が実装されたことだけで
 Milestone 達成とはみなさない。
+
+## 7. 実装状況と検証（2026-10-19）
+
+MVP の段階 1〜3 を `apps/api`・`apps/web` に実装した。
+
+| Feature | 状態 | 実装 |
+| --- | --- | --- |
+| F-01 / F-02 | 実装済み | `routes/news.py`、`agents/chat.py` |
+| F-03 / F-04 | 実装済み（コミュニティ新規作成は未実装） | `routes/communities.py`、`agents/recommend.py` |
+| F-06 / F-07 / F-21 | 実装済み | `routes/issues.py`、`agents/issue_card.py`、`proposals.py` |
+| F-08 / F-09 | 実装済み（CSV / Excel のみ） | `routes/data.py`、`agents/opendata.py`、`agents/shaping.py` |
+| F-10 / F-12 | 実装済み（注釈は API のみ、画面は未実装） | `routes/dashboards.py`、`components/KpiCard.tsx` |
+| F-13 / F-15 | 実装済み | `routes/dashboards.py`、`pages/Dash.tsx`、`pages/Me.tsx` |
+| F-17 / F-18 / F-19 / F-20 | 実装済み（認証はデモ用の利用者切替） | 各 route と画面 |
+| F-05 / F-11 / F-14 / F-22 | 未実装（Next / Later） | — |
+
+**確認したこと**
+
+- API テスト 9 件（代表フロー、AI 失敗時の手動経路、AI 提案の判断記録、KPI 上限、個人情報警告、公開 URL 固定、
+  非公開化、区職員の判断と通知、整形の決定的実行と地域絞り込み警告）。
+- 実 LLM（`gpt-5.4-mini`）で代表フローを API と画面（390px 相当のモバイル幅）で通し実行した。
+  記事・対話の文脈は課題カードの下書きへ自動で引き継がれ、手作業の転記は 0 回だった。
+- probe-agent（System 6）で AI エージェント 4 種の trace を観測し、shadow 比較で改善した:
+  - OpenData 検索: 関連度を判定する v2 が 4 件中 4 件で無関係なデータセットを除外 → v2 を採用。
+  - データ整形: 列の値一覧を渡す v2 は better 1 / worse 1 / same 10 で優位性なし → 採用せず、
+    地域の絞り込み漏れを決定的に警告する検査を追加した（初回実行で新宿区の行を含めた 76 件と誤集計した事例への対策）。
+
+**確認していないこと**
+
+- 実際の区民・区職員による利用評価（[UX §5](ux.md#5-代表シナリオでの検証) の所要時間・誤認の実測）。
+- 実在のオープンデータでの検索・整形（シードは架空のサンプルのみ）。
+- 本番の認証・権限、スクリーンリーダーでの操作。

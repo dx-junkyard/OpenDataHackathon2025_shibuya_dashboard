@@ -1,0 +1,24 @@
+[project]
+name = "shibuya-cocreation-api"
+version = "0.1.0"
+description = "渋谷共創ダッシュボード API"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# probe-agent Python SDK. Install from a local checkout:
+#   pip install -e ../../../probe-agent/packages/python-probe
+# or from GitHub pinned to a commit (see probe-agent README).
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

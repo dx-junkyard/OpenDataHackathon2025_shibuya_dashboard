@@ -1,0 +1,27 @@
+# probe-agent が対象リポジトリとして読む設定（コミット済みのファイルだけが読まれる）
+repository:
+  include:
+    - README.md
+    - docs/**
+    - apps/api/app/**
+    - apps/api/tests/**
+    - apps/web/src/**
+  exclude:
+    - .env
+    - apps/api/data/**
+    - "**/node_modules/**"
+
+commands:
+  install:
+    - pip install -e apps/api[dev]
+  test:
+    - pytest apps/api/tests
+  smoke: []
+  workload: []
+
+runtime:
+  network: false
+  timeout_seconds: 120
+  env:
+    PROBE_ENABLED: "true"
+    PROBE_DEFAULT_MODE: "trace"

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Local runtime data (SQLite DB, generated sample datasets, uploads)
+apps/api/data/
+
+# Secrets
+.env
+*.pem
+*.key
+*.tsbuildinfo
