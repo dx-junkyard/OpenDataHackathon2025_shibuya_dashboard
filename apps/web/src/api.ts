@@ -104,6 +104,7 @@ export type IssueCard = {
   latest_decision: { state: string; reason: string; department: string; decided_by_name: string } | null;
   policy_news: PolicyNewsLink[];
   community: { id: number; name: string } | null;
+  origin: { kind: "thread" | "news" | "conversation"; label: string; path: string } | null;
   origin_kind: string;
   origin_ref: string;
 };

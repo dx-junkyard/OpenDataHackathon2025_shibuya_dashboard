@@ -9,7 +9,7 @@ type Draft = {
   title: string;
   target: string;
   place_time: string;
-  evidence: { kind: "news" | "conversation" | "observation"; text: string; quote: string }[];
+  evidence: { kind: "news" | "conversation" | "observation" | "thread"; text: string; quote: string }[];
   focus_area: string;
   focus_reason: string;
   kpi_candidates: KpiCand[];
@@ -23,6 +23,8 @@ export function IssueNew() {
   const nav = useNavigate();
   const origin = params.get("origin") ?? "";
   const [kind, ref] = origin.split(":");
+  // "<summary proposal id>:<candidate index>" when started from a thread's AI issue candidate (F-05).
+  const [summaryId, candidateIndex] = (params.get("candidate") ?? "").split(":").map((x) => (x === "" ? null : Number(x)));
   const areas = useQuery({
     queryKey: ["focus-areas"],
     queryFn: () => api<{ items: { key: string; label: string }[]; max_kpis: number }>("/focus-areas"),
@@ -41,7 +43,7 @@ export function IssueNew() {
   const requested = useRef(false);
 
   const draft = useMutation({
-    mutationFn: () => api<Proposal<Draft>>("/issue-drafts", { method: "POST", json: { origin_kind: kind, origin_ref: Number(ref) } }),
+    mutationFn: () => api<Proposal<Draft>>("/issue-drafts", { method: "POST", json: { origin_kind: kind, origin_ref: Number(ref), summary_proposal_id: summaryId ?? null, candidate_index: candidateIndex ?? null } }),
     onSuccess: (p) => {
       setProposal(p);
       setForm(p.payload);

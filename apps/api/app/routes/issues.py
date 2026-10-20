@@ -23,6 +23,26 @@ OriginKind = Literal["news", "conversation", "thread", "manual"]
 class DraftRequest(BaseModel):
     origin_kind: Literal["news", "conversation", "thread"]
     origin_ref: int
+    # An issue candidate of the thread's AI summary (F-05) to start the draft from.
+    summary_proposal_id: Optional[int] = None
+    candidate_index: Optional[int] = None
+
+
+def speaker_label(role: str, attribute: str, department: str) -> str:
+    """Who spoke, without the person's name (F-17): the AI sees the stance only."""
+    if role == "staff":
+        return f"区職員（{department}）" if department else "区職員"
+    if role == "community_manager":
+        return "コミュニティ運営"
+    return {"resident": "住民", "visitor": "来訪者", "business": "事業者"}.get(attribute, "参加者")
+
+
+def thread_posts_for_ai(conn, thread_id: int) -> list:
+    rows = conn.execute(
+        "SELECT p.id, p.text, u.role, u.attribute, u.department FROM posts p JOIN users u ON u.id = p.user_id"
+        " WHERE thread_id = ? ORDER BY p.id", (thread_id,)).fetchall()
+    return [{"id": r["id"], "speaker": speaker_label(r["role"], r["attribute"], r["department"]),
+             "text": redact_personal_info(r["text"])} for r in rows]
 
 
 def origin_context(conn, kind: str, ref: int, user_id: int) -> tuple[str, list]:
@@ -49,21 +69,48 @@ def origin_context(conn, kind: str, ref: int, user_id: int) -> tuple[str, list]:
     t = conn.execute("SELECT * FROM threads WHERE id = ?", (ref,)).fetchone()
     if t is None:
         raise HTTPException(404, "スレッドが見つかりません")
-    posts = conn.execute(
-        "SELECT p.text, u.display_name, u.role FROM posts p JOIN users u ON u.id = p.user_id WHERE thread_id = ? ORDER BY p.id",
-        (ref,)).fetchall()
-    body = "\n".join(f"[{p['display_name']}] {p['text']}" for p in posts)
+    body = "\n".join(f"[発言{i}: {p['speaker']}] {p['text']}" for i, p in enumerate(thread_posts_for_ai(conn, ref), start=1))
     return f"[スレッド] {t['title']}\n{body}", [{"kind": "thread", "ref": f"thread:{ref}", "label": t["title"]}]
+
+
+def candidate_context(conn, req: DraftRequest) -> tuple[str, list, list]:
+    """The chosen issue candidate of a thread summary, as extra context, proposal evidence,
+    and the cited posts as card evidence (taken from the thread itself, not from the AI)."""
+    if req.summary_proposal_id is None:
+        return "", [], []
+    prop = proposals.load(conn, req.summary_proposal_id, "thread_summary")
+    if req.origin_kind != "thread" or prop["target_ref"] != f"thread:{req.origin_ref}":
+        raise HTTPException(422, "このスレッドの課題候補ではありません")
+    if prop["status"] == "rejected":
+        raise HTTPException(409, "この課題候補は却下されています")
+    cands = json.loads(prop["payload"])["issue_candidates"]
+    if req.candidate_index is None or not 0 <= req.candidate_index < len(cands):
+        raise HTTPException(422, "課題候補が見つかりません")
+    c = cands[req.candidate_index]
+    nums = "・".join(f"発言{n}" for n in c["post_numbers"])
+    text = (f"[コミュニティで提示された課題候補（AI の提案）] {c['title']}\n対象: {c['target']}\n"
+            f"理由: {c['reason']}\n根拠: {nums}\nこの候補を中心に下書きを作ること。")
+    posts = thread_posts_for_ai(conn, req.origin_ref)
+    quoted = [{"kind": "thread", "text": f"スレッドの発言{n}（{posts[n - 1]['speaker']}）", "quote": posts[n - 1]["text"]}
+              for n in c["post_numbers"] if n <= len(posts)]
+    return text, [{"kind": "thread_summary", "ref": f"ai_proposal:{prop['id']}#candidate:{req.candidate_index}",
+                   "label": f"AI の課題候補: {c['title']}"}], quoted
 
 
 @router.post("/issue-drafts", status_code=201)
 def create_draft(req: DraftRequest, user: dict = Depends(current_user)):
     with get_conn() as conn:
         context, evidence = origin_context(conn, req.origin_kind, req.origin_ref, user["id"])
+        extra, extra_ev, quoted = candidate_context(conn, req)
+        if extra:
+            context, evidence = f"{context}\n\n{extra}", evidence + extra_ev
     try:
         draft = issue_card.draft(context)
     except llm.LLMUnavailable as exc:
-        raise HTTPException(503, {"code": "ai_unavailable", "message": str(exc), "evidence": evidence}) from exc
+        raise HTTPException(503, {"code": "ai_unavailable", "message": str(exc), "evidence": evidence,
+                                  "quoted_evidence": quoted}) from exc
+    # The posts the candidate cites become the card's first evidence, verbatim (P-3).
+    draft["evidence"] = quoted + [e for e in draft["evidence"] if e["quote"] not in {q["quote"] for q in quoted}]
     with get_conn() as conn:
         pid = proposals.create(conn, kind="issue_card_draft", target_ref=f"{req.origin_kind}:{req.origin_ref}",
                                payload=draft, evidence=evidence, user_id=user["id"])
@@ -118,6 +165,13 @@ PII_PATTERNS = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "メールアドレス"),
     (re.compile(r"0\d{1,4}-?\d{1,4}-?\d{3,4}"), "電話番号"),
 ]
+
+
+def redact_personal_info(text: str) -> str:
+    """Mask contact details before a post leaves for the LLM (F-17)."""
+    for pat, label in PII_PATTERNS:
+        text = pat.sub(f"［{label}は伏せました］", text)
+    return text
 
 
 def personal_info_warnings(*texts: str) -> List[str]:
@@ -183,7 +237,20 @@ def create_issue_card(body: IssueCardCreate, user: dict = Depends(current_user))
                 (card_id, k.name, k.unit, k.measurement, k.data_availability, i))
         if decision:
             proposals.decide(conn, body.proposal_id, decision, user["id"], result_ref=f"issue_card:{card_id}")
+            _adopt_thread_candidate(conn, json.loads(prop["evidence"]), card_id, user["id"])
         return card_out(conn, card_id, user)
+
+
+def _adopt_thread_candidate(conn, evidence: list, card_id: int, user_id: int) -> None:
+    """Saving a card drafted from a thread's issue candidate is the person's adoption of
+    that candidate, so the thread summary proposal is recorded as adopted (F-05 / F-21)."""
+    for e in evidence:
+        m = re.fullmatch(r"ai_proposal:(\d+)#candidate:(\d+)", e.get("ref", "")) if e.get("kind") == "thread_summary" else None
+        if m:
+            summary = proposals.load(conn, int(m.group(1)), "thread_summary")
+            if summary["status"] == "proposed":
+                proposals.decide(conn, summary["id"], "adopted", user_id,
+                                 result_ref=f"issue_card:{card_id}#candidate:{m.group(2)}")
 
 
 def card_out(conn, card_id: int, viewer: Optional[dict]) -> dict:
@@ -222,7 +289,28 @@ def card_out(conn, card_id: int, viewer: Optional[dict]) -> dict:
         (card_id,))]
     out["community"] = (dict(conn.execute("SELECT id, name FROM communities WHERE id = ?", (c["community_id"],)).fetchone())
                         if c["community_id"] else None)
+    out["origin"] = _origin_out(conn, c, viewer)
     return out
+
+
+def _origin_out(conn, c, viewer: Optional[dict]) -> Optional[dict]:
+    """Where the card came from, so readers can go back to it (UXR-12). A conversation is
+    private to its author; others only see that the card started from one."""
+    kind, ref = c["origin_kind"], c["origin_ref"]
+    if not ref or not ref.isdigit():
+        return None
+    if kind == "thread":
+        t = conn.execute("SELECT id, title, community_id FROM threads WHERE id = ?", (int(ref),)).fetchone()
+        return {"kind": "thread", "label": t["title"], "path": f"/community/{t['community_id']}?thread={t['id']}"} if t else None
+    if kind == "news":
+        n = conn.execute("SELECT id, title FROM news WHERE id = ?", (int(ref),)).fetchone()
+        return {"kind": "news", "label": n["title"], "path": f"/news/{n['id']}"} if n else None
+    if kind == "conversation":
+        conv = conn.execute("SELECT news_id FROM conversations WHERE id = ?", (int(ref),)).fetchone()
+        own = viewer is not None and viewer["id"] == c["author_id"]
+        path = f"/news/{conv['news_id']}" if conv and conv["news_id"] and own else ""
+        return {"kind": "conversation", "label": "作成者と AI の対話", "path": path}
+    return None
 
 
 @router.get("/issue-cards")

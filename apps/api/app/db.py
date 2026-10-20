@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS ai_proposals (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('issue_card_draft','dataset_candidates','shaping_plan','recommendation',
-        'policy_news_draft')),
+        'policy_news_draft','thread_summary')),
     target_ref TEXT NOT NULL,
     payload TEXT NOT NULL,
     evidence TEXT NOT NULL DEFAULT '[]',

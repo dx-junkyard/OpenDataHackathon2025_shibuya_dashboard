@@ -1,4 +1,4 @@
-"""コミュニティ (F-04)、関心からの推薦 (F-03)、マイページと通知 (F-15)、利用者 (F-19)."""
+"""コミュニティ (F-04)、スレッド要約・課題候補 (F-05)、関心からの推薦 (F-03)、マイページと通知 (F-15)、利用者 (F-19)."""
 from __future__ import annotations
 
 import json
@@ -9,11 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import llm, proposals
-from ..agents import recommend
+from ..agents import recommend, thread_summary
 from ..db import get_conn
 from ..deps import current_user
 from ..domain import FOCUS_AREAS, ISSUE_STATUS_LABELS
-from .issues import card_out
+from .issues import card_out, thread_posts_for_ai
 
 router = APIRouter()
 
@@ -180,7 +180,56 @@ def get_thread(tid: int, user: dict = Depends(current_user)):
         posts = conn.execute(
             "SELECT p.id, p.text, p.created_at, u.display_name, u.role, u.attribute, u.department FROM posts p"
             " JOIN users u ON u.id = p.user_id WHERE thread_id = ? ORDER BY p.id", (tid,)).fetchall()
-        return {**dict(t), "posts": [dict(p) for p in posts]}
+        return {**dict(t), "posts": [dict(p) for p in posts], "summary": _latest_summary(conn, tid, len(posts))}
+
+
+def _latest_summary(conn, tid: int, post_count: int) -> Optional[dict]:
+    """The newest AI summary of the thread that was not rejected. `stale` tells the
+    reader that posts were added after it was made, so it does not cover them."""
+    row = conn.execute("SELECT * FROM ai_proposals WHERE kind = 'thread_summary' AND target_ref = ? AND status != 'rejected'"
+                       " ORDER BY id DESC LIMIT 1", (f"thread:{tid}",)).fetchone()
+    if row is None:
+        return None
+    out = proposals.to_out(row)
+    # Issue cards made from its candidates (UXP-8: the discussion's result stays visible).
+    made = conn.execute(
+        "SELECT p.evidence, ic.id, ic.title FROM ai_proposals p JOIN issue_cards ic ON ic.proposal_id = p.id"
+        " WHERE p.kind = 'issue_card_draft' AND p.target_ref = ? AND ic.visibility != 'private' ORDER BY ic.id",
+        (f"thread:{tid}",)).fetchall()
+    cards = []
+    for m in made:
+        for e in json.loads(m["evidence"]):
+            prefix = f"ai_proposal:{row['id']}#candidate:"
+            if e.get("kind") == "thread_summary" and e["ref"].startswith(prefix):
+                cards.append({"candidate_index": int(e["ref"][len(prefix):]), "id": m["id"], "title": m["title"]})
+    return {**out, "stale": out["payload"]["post_count"] != post_count, "issue_cards": cards}
+
+
+@router.post("/threads/{tid}/summary", status_code=201)
+def summarize_thread(tid: int, user: dict = Depends(current_user)):
+    """Community 形成支援 Agent (F-05): an AI summary with issue candidates, as a proposal."""
+    with get_conn() as conn:
+        t = conn.execute("SELECT * FROM threads WHERE id = ?", (tid,)).fetchone()
+        if t is None:
+            raise HTTPException(404, "スレッドが見つかりません")
+        _require_member(conn, t["community_id"], user["id"])
+        posts = thread_posts_for_ai(conn, tid)
+    try:
+        result = thread_summary.summarize(t["title"], posts)
+    except llm.LLMUnavailable as exc:
+        raise HTTPException(503, {"code": "ai_unavailable", "message": str(exc)}) from exc
+    # Post numbers are what the model saw; post ids are what the screen links to.
+    pid_of = {i: p["id"] for i, p in enumerate(posts, start=1)}
+    with_ids = lambda items: [{**x, "post_ids": [pid_of[n] for n in x["post_numbers"]]} for x in items]  # noqa: E731
+    payload = {"summary": result["summary"], "points": with_ids(result["points"]),
+               "issue_candidates": with_ids(result["issue_candidates"]),
+               "open_questions": result["open_questions"], "post_count": len(posts)}
+    cited = sorted({n for x in result["points"] + result["issue_candidates"] for n in x["post_numbers"]})
+    evidence = [{"kind": "post", "ref": f"post:{pid_of[n]}", "label": f"発言{n}"} for n in cited]
+    with get_conn() as conn:
+        proposals.create(conn, kind="thread_summary", target_ref=f"thread:{tid}", payload=payload,
+                         evidence=evidence, user_id=user["id"])
+        return _latest_summary(conn, tid, len(posts))
 
 
 @router.post("/threads/{tid}/posts", status_code=201)
@@ -248,6 +297,22 @@ def me(user: dict = Depends(current_user)):
             "issue_cards": [{**dict(c), "status_label": ISSUE_STATUS_LABELS[c["status"]], "policy_news": policy[c["id"]]}
                             for c in cards],
             "communities": [dict(j) for j in joined]}
+
+
+@router.get("/me/recent-voice")
+def recent_voice(user: dict = Depends(current_user)):
+    """What the user last told the AI about an article, so it can be shared in a thread
+    without retyping it (UX §5: manual transcription 0). Only the user's own words."""
+    with get_conn() as conn:
+        conv = conn.execute(
+            "SELECT c.id, c.news_id, n.title FROM conversations c LEFT JOIN news n ON n.id = c.news_id"
+            " WHERE c.user_id = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.speaker = 'user')"
+            " ORDER BY c.id DESC LIMIT 1", (user["id"],)).fetchone()
+        if conv is None:
+            return {"conversation_id": None, "news_title": "", "texts": []}
+        texts = [m["text"] for m in conn.execute(
+            "SELECT text FROM messages WHERE conversation_id = ? AND speaker = 'user' ORDER BY id", (conv["id"],))]
+    return {"conversation_id": conv["id"], "news_title": conv["title"] or "", "texts": texts}
 
 
 @router.get("/me/notifications")

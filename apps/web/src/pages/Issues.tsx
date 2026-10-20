@@ -198,6 +198,12 @@ export function IssueDetail() {
           <dt className="text-muted">場所・時間帯</dt><dd>{c.place_time || "—"}</dd>
           <dt className="text-muted">注力分野</dt><dd>{c.focus_area_label || "—"}</dd>
         </dl>
+        {c.origin && (
+          <p className="mt-2 text-xs text-muted">
+            起点: {{ thread: "スレッド", news: "記事", conversation: "" }[c.origin.kind]}
+            {c.origin.path ? <Link className="ml-1 text-brand-strong underline" to={c.origin.path}>{c.origin.label}</Link> : <span className="ml-1">{c.origin.label}</span>}
+          </p>
+        )}
         {c.evidence.length > 0 && (
           <>
             <h3 className="mt-3 text-sm font-semibold text-muted">根拠</h3>

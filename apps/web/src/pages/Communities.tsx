@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, roleLabel } from "../api";
 import { NewCommunityForm } from "../components/CommunityLink";
+import { ThreadSummary, type ThreadSummaryOut } from "../components/ThreadSummary";
 import { Button, Card, ErrorNote, Loading } from "../components/ui";
 
 type Community = {
@@ -25,6 +26,7 @@ type Thread = {
   community_id: number;
   title: string;
   posts: { id: number; text: string; display_name: string; role: string; attribute: string; department: string }[];
+  summary: ThreadSummaryOut | null;
 };
 
 /** コミュ参加: search, list and join (docs/ux.md §2). */
@@ -36,7 +38,13 @@ export function CommunitySearch() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["communities", q], queryFn: () => api<{ items: Community[] }>(`/communities?q=${encodeURIComponent(q)}`) });
-  const join = useMutation({ mutationFn: (id: number) => api(`/communities/${id}/join`, { method: "POST" }), onSuccess: () => qc.invalidateQueries() });
+  const join = useMutation({
+    mutationFn: (id: number) => api(`/communities/${id}/join`, { method: "POST" }),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries();
+      nav(`/community/${id}`);
+    },
+  });
   return (
     <>
       <label className="block">
@@ -115,7 +123,8 @@ export function CommunityHome() {
 
 function CommunityView({ cid }: { cid: number }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState<number | null>(null);
+  const [params] = useSearchParams();
+  const [open, setOpen] = useState<number | null>(Number(params.get("thread")) || null);
   const [tab, setTab] = useState<"threads" | "cards">("threads");
   const [newTitle, setNewTitle] = useState("");
   const [newText, setNewText] = useState("");
@@ -129,12 +138,23 @@ function CommunityView({ cid }: { cid: number }) {
       qc.invalidateQueries({ queryKey: ["community", cid] });
     },
   });
+  const join = useMutation({
+    mutationFn: () => api(`/communities/${cid}/join`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries(),
+  });
   if (!c.data) return <ErrorNote error={c.error} />;
   return (
     <>
       <Card>
         <h2 className="text-lg font-bold">{c.data.name}</h2>
         <p className="text-sm text-muted">メンバー {c.data.member_count}{c.data.hot_topic && `｜Hot: ${c.data.hot_topic}`}</p>
+        {!c.data.joined && (
+          <div className="mt-2">
+            <p className="text-xs text-muted">読むだけなら参加は不要です。区民でなくても参加して発言できます。</p>
+            <Button className="mt-1" onClick={() => join.mutate()} disabled={join.isPending}>参加する</Button>
+            <ErrorNote error={join.error} />
+          </div>
+        )}
       </Card>
       <div className="flex gap-2" role="tablist">
         <Button role="tab" aria-selected={tab === "threads"} variant={tab === "threads" ? "primary" : "secondary"} onClick={() => setTab("threads")}>スレッド</Button>
@@ -148,7 +168,7 @@ function CommunityView({ cid }: { cid: number }) {
                 <span className="font-semibold">{t.title}</span>
                 <span className="text-xs text-muted">返信 {t.post_count}</span>
               </button>
-              {open === t.id && <ThreadView id={t.id} communityId={cid} />}
+              {open === t.id && <ThreadView id={t.id} communityId={cid} joined={c.data!.joined} />}
             </Card>
           ))}
           {c.data.joined && (
@@ -176,11 +196,16 @@ function CommunityView({ cid }: { cid: number }) {
   );
 }
 
-function ThreadView({ id, communityId }: { id: number; communityId: number }) {
+function ThreadView({ id, communityId, joined }: { id: number; communityId: number; joined: boolean }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const t = useQuery({ queryKey: ["thread", id], queryFn: () => api<Thread>(`/threads/${id}`) });
+  const voice = useQuery({
+    queryKey: ["recent-voice"],
+    queryFn: () => api<{ conversation_id: number | null; news_title: string; texts: string[] }>("/me/recent-voice"),
+    enabled: joined,
+  });
   const post = useMutation({
     mutationFn: () => api<Thread>(`/threads/${id}/posts`, { method: "POST", json: { text } }),
     onSuccess: () => {
@@ -189,11 +214,18 @@ function ThreadView({ id, communityId }: { id: number; communityId: number }) {
       qc.invalidateQueries({ queryKey: ["community", communityId] });
     },
   });
+  const join = useMutation({
+    mutationFn: () => api(`/communities/${communityId}/join`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries(),
+  });
   if (!t.data) return <Loading />;
+  const said = voice.data?.texts.join("\n") ?? "";
+  const alreadyShared = t.data.posts.some((p) => p.text.trim() === said.trim());
   return (
     <div className="mt-3 space-y-2">
-      {t.data.posts.map((p) => (
-        <p key={p.id} className={`rounded-xl border p-2 text-sm ${p.role === "staff" ? "border-brand bg-brand-soft" : "border-line"}`}>
+      {t.data.posts.map((p, i) => (
+        <p key={p.id} id={`post-${p.id}`} className={`scroll-mt-4 rounded-xl border p-2 text-sm target:ring-2 target:ring-ai ${p.role === "staff" ? "border-brand bg-brand-soft" : "border-line"}`}>
+          <span className="mr-1 text-xs text-muted">発言{i + 1}</span>
           <span className="mr-1 text-xs font-semibold">
             {p.role === "staff" ? "🏛 " : ""}
             {p.display_name}（{roleLabel(p)}）
@@ -201,11 +233,28 @@ function ThreadView({ id, communityId }: { id: number; communityId: number }) {
           {p.text}
         </p>
       ))}
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); post.mutate(); }}>
-        <input className="input" aria-label="返信" placeholder="メッセージを入力…" value={text} onChange={(e) => setText(e.target.value)} />
-        <Button disabled={!text.trim() || post.isPending}>送信</Button>
-      </form>
-      <ErrorNote error={post.error} />
+      {joined ? (
+        <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); post.mutate(); }}>
+          {said && !alreadyShared && text !== said && (
+            <button type="button" className="w-full rounded-xl border border-dashed border-line p-2 text-left text-xs" onClick={() => setText(said)}>
+              <span className="font-semibold text-brand-strong">AI に話したことを使う</span>
+              <span className="block text-muted">「{voice.data!.news_title}」で: {said.length > 60 ? `${said.slice(0, 60)}…` : said}</span>
+            </button>
+          )}
+          <div className="flex gap-2">
+            <textarea className="input min-h-11 flex-1" aria-label="返信" placeholder="メッセージを入力…" value={text} onChange={(e) => setText(e.target.value)} />
+            <Button className="shrink-0 whitespace-nowrap" disabled={!text.trim() || post.isPending}>送信</Button>
+          </div>
+          <ErrorNote error={post.error} />
+        </form>
+      ) : (
+        <div className="rounded-xl border border-dashed border-line p-3">
+          <p className="text-xs text-muted">返信するにはこのコミュニティに参加します（区民でなくても参加できます）。</p>
+          <Button className="mt-1" onClick={() => join.mutate()} disabled={join.isPending}>参加して返信する</Button>
+          <ErrorNote error={join.error} />
+        </div>
+      )}
+      <ThreadSummary threadId={id} communityId={communityId} summary={t.data.summary} canRequest={joined} />
       <Button variant="secondary" onClick={() => nav(`/issues/new?origin=thread:${id}&community=${communityId}`)}>このスレッドから課題カードを作る</Button>
     </div>
   );
