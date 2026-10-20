@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type DashboardView, type IssueCard, type User } from "../api";
+import { DashboardAnnotations } from "../components/DashboardAnnotations";
 import { KpiCard } from "../components/KpiCard";
+import { PolicyNewsComposer } from "../components/PolicyNewsComposer";
 import { Button, Card, ErrorNote, Loading } from "../components/ui";
 
 const STATE_LABEL: Record<string, string> = { under_review: "検討中", adopted: "採用", declined: "見送り" };
@@ -85,6 +87,7 @@ function StaffItem({ d, onDone }: { d: DashboardView; onDone: () => void }) {
       {d.latest_decision && (
         <p className="mt-1 text-xs">現在: <strong>{STATE_LABEL[d.latest_decision.state]}</strong>（{d.latest_decision.reason}）</p>
       )}
+      {d.latest_decision?.state === "adopted" && <PolicyNewsComposer d={d} onDone={onDone} />}
       <form
         className="mt-2 space-y-2"
         onSubmit={(e) => {
@@ -110,10 +113,18 @@ function StaffItem({ d, onDone }: { d: DashboardView; onDone: () => void }) {
 
 export function PublicDashboard() {
   const { slug } = useParams();
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ["public", slug], queryFn: () => api<DashboardView>(`/public/dashboards/${slug}`) });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<User>("/me") });
+  const card = useQuery({
+    queryKey: ["issue", String(q.data?.issue_card_id)],
+    queryFn: () => api<IssueCard>(`/issue-cards/${q.data!.issue_card_id}`),
+    enabled: !!q.data,
+  });
   if (q.isLoading) return <Loading />;
   if (!q.data) return <ErrorNote error={q.error} />;
   const d = q.data;
+  const canEdit = me.data?.role === "staff" || (!!me.data && card.data?.author_id === me.data.id);
   return (
     <>
       <Card>
@@ -128,11 +139,18 @@ export function PublicDashboard() {
             🏛 {d.latest_decision.department}: <strong>{STATE_LABEL[d.latest_decision.state]}</strong>（{d.latest_decision.reason}）
           </p>
         )}
+        {d.policy_news.map((n) => (
+          <p key={n.id} className="mt-2 text-sm">
+            📣 施策ニュース: <Link className="text-brand-strong underline" to={`/news/${n.id}`}>{n.title}</Link>
+            <span className="ml-1 text-xs text-muted">{n.published_at}</span>
+          </p>
+        ))}
         <a className="mt-2 inline-block text-sm text-brand-strong underline" href={`/api/public/dashboards/${slug}/export.csv`}>
           KPI データを CSV でダウンロード（出典付き）
         </a>
       </Card>
       {d.kpis.map((k) => <KpiCard key={k.id} kpi={k} annotations={d.annotations} />)}
+      <DashboardAnnotations view={d} cardId={d.issue_card_id} canEdit={canEdit} onDone={() => qc.invalidateQueries()} />
       <Link to={`/issues/${d.issue_card_id}`} className="block text-center text-sm text-brand-strong underline">課題カードを見る</Link>
     </>
   );

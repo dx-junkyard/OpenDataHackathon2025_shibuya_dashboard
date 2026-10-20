@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, roleLabel } from "../api";
+import { NewCommunityForm } from "../components/CommunityLink";
 import { Button, Card, ErrorNote, Loading } from "../components/ui";
 
 type Community = {
@@ -31,6 +32,8 @@ export function CommunitySearch() {
   const [params] = useSearchParams();
   const focus = Number(params.get("focus")) || null;
   const [q, setQ] = useState("");
+  const [creating, setCreating] = useState(false);
+  const nav = useNavigate();
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["communities", q], queryFn: () => api<{ items: Community[] }>(`/communities?q=${encodeURIComponent(q)}`) });
   const join = useMutation({ mutationFn: (id: number) => api(`/communities/${id}/join`, { method: "POST" }), onSuccess: () => qc.invalidateQueries() });
@@ -42,7 +45,23 @@ export function CommunitySearch() {
       </label>
       {list.isLoading && <Loading />}
       {list.data?.items.length === 0 && (
-        <Card><p className="text-sm text-muted">合うコミュニティが見つかりませんでした。新しく作ることもできます（次の段階で対応予定）。</p></Card>
+        <Card><p className="text-sm text-muted">合うコミュニティが見つかりませんでした。新しく作ることもできます。</p></Card>
+      )}
+      {creating ? (
+        <Card>
+          <NewCommunityForm
+            defaults={{ name: q }}
+            onCreated={(id) => {
+              qc.invalidateQueries();
+              nav(`/community/${id}`);
+            }}
+            onCancel={() => setCreating(false)}
+          />
+        </Card>
+      ) : (
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={() => setCreating(true)}>＋ 新しいコミュニティを作る</Button>
+        </div>
       )}
       {list.data?.items.map((c) => (
         <Card key={c.id} className={focus === c.id ? "border-brand ring-2 ring-brand" : ""}>
@@ -115,7 +134,7 @@ function CommunityView({ cid }: { cid: number }) {
     <>
       <Card>
         <h2 className="text-lg font-bold">{c.data.name}</h2>
-        <p className="text-sm text-muted">メンバー {c.data.member_count}｜Hot: {c.data.hot_topic}</p>
+        <p className="text-sm text-muted">メンバー {c.data.member_count}{c.data.hot_topic && `｜Hot: ${c.data.hot_topic}`}</p>
       </Card>
       <div className="flex gap-2" role="tablist">
         <Button role="tab" aria-selected={tab === "threads"} variant={tab === "threads" ? "primary" : "secondary"} onClick={() => setTab("threads")}>スレッド</Button>

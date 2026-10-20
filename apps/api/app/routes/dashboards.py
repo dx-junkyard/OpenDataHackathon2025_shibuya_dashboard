@@ -45,8 +45,44 @@ def kpi_summary(k: dict) -> dict:
     }
 
 
+CAUSALITY_NOTE = ("因果関係は未確認です。注釈の前後で値が変わっていても、施策の効果とは限りません"
+                  "（季節・ほかの施策・データの定義変更などでも変わります）。")
+ANNOTATION_KINDS = {"policy_start": "施策開始", "event": "イベント", "definition_change": "データ定義の変更"}
+SLOPE_WINDOW = 6
+
+
+def _per_period(values: list) -> Optional[float]:
+    return (values[-1] - values[0]) / (len(values) - 1) if len(values) >= 2 else None
+
+
+def comparisons(kpis: list, annotations: list) -> list:
+    """Before/after view for each annotation (F-12). Pure arithmetic on the
+    published points; it describes the change and never claims a cause."""
+    out = []
+    for a in annotations:
+        rows = []
+        for k in kpis:
+            before = [p["value"] for p in k["points"] if p["period"] < a["period"]]
+            after = [p["value"] for p in k["points"] if p["period"] >= a["period"]]
+            rows.append({
+                "kpi_id": k["id"], "name": k["name"], "unit": k["unit"],
+                "before_value": before[-1] if before else None,
+                "after_value": after[-1] if after else None,
+                "after_periods": len(after),
+                "before_per_period": _per_period(before[-SLOPE_WINDOW:]),
+                "after_per_period": _per_period(before[-1:] + after) if before else _per_period(after),
+                "state": "no_data" if not k["points"] else "no_after" if not after else "no_before" if not before else "ok",
+            })
+        out.append({"annotation_id": a["id"], "period": a["period"], "label": a["label"], "kind": a["kind"], "kpis": rows})
+    return out
+
+
 def public_view(conn, card_id: int) -> dict:
     card = card_out(conn, card_id, None)
+    kpis = [kpi_summary(k) for k in card["kpis"]]
+    annotations = [{**dict(a), "kind_label": ANNOTATION_KINDS[a["kind"]]} for a in conn.execute(
+        "SELECT id, period, label, kind, news_id FROM annotations WHERE dashboard_id = ? ORDER BY period, id",
+        (card["dashboard"]["id"],))] if card["dashboard"] else []
     return {
         "issue_card_id": card["id"],
         "title": card["title"],
@@ -58,13 +94,14 @@ def public_view(conn, card_id: int) -> dict:
         "status_label": card["status_label"],
         # Public view exposes evidence sources only, never individual posts or names (F-17).
         "evidence_sources": [{"kind": e["kind"], "text": e["text"]} for e in card["evidence"] if e["kind"] != "conversation"],
-        "kpis": [kpi_summary(k) for k in card["kpis"]],
+        "kpis": kpis,
         "dashboard": card["dashboard"],
         "latest_decision": ({k: card["latest_decision"][k] for k in ("state", "reason", "department", "decided_at")}
                             if card["latest_decision"] else None),
-        "annotations": [dict(a) for a in conn.execute(
-            "SELECT period, label FROM annotations WHERE dashboard_id = ? ORDER BY period",
-            (card["dashboard"]["id"],))] if card["dashboard"] else [],
+        "annotations": annotations,
+        "comparisons": comparisons(kpis, annotations),
+        "causality_note": CAUSALITY_NOTE,
+        "policy_news": card["policy_news"],
     }
 
 
@@ -155,6 +192,7 @@ def export_csv(slug: str):
 class AnnotationIn(BaseModel):
     period: str = Field(min_length=4, max_length=10)
     label: str = Field(min_length=1, max_length=100)
+    kind: Literal["policy_start", "event", "definition_change"] = "event"
 
 
 @router.post("/issue-cards/{card_id}/dashboard/annotations", status_code=201)
@@ -165,8 +203,8 @@ def add_annotation(card_id: int, body: AnnotationIn, user: dict = Depends(curren
             raise HTTPException(422, "ダッシュボードがまだありません")
         if card["author_id"] != user["id"] and user["role"] != "staff":
             raise HTTPException(403, "作成者または区職員だけが注釈を追加できます")
-        conn.execute("INSERT INTO annotations (dashboard_id, period, label, created_by, created_at) VALUES (?,?,?,?,?)",
-                     (card["dashboard"]["id"], body.period, body.label, user["id"], time.time()))
+        conn.execute("INSERT INTO annotations (dashboard_id, period, label, kind, created_by, created_at) VALUES (?,?,?,?,?,?)",
+                     (card["dashboard"]["id"], body.period, body.label, body.kind, user["id"], time.time()))
         return public_view(conn, card_id)
 
 

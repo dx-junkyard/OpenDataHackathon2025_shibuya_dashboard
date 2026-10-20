@@ -13,6 +13,7 @@ from ..agents import recommend
 from ..db import get_conn
 from ..deps import current_user
 from ..domain import FOCUS_AREAS, ISSUE_STATUS_LABELS
+from .issues import card_out
 
 router = APIRouter()
 
@@ -36,6 +37,87 @@ def list_communities(q: Optional[str] = None, focus_area: Optional[str] = None, 
         args.append(focus_area)
     with get_conn() as conn:
         return {"items": [community_out(conn, r, user["id"]) for r in conn.execute(sql + " ORDER BY id", args)]}
+
+
+class CommunityIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    description: str = Field(default="", max_length=300)
+    category: str = Field(default="", max_length=20)
+    focus_area: str = ""
+    area: str = Field(default="", max_length=40)
+
+
+@router.post("/communities", status_code=201)
+def create_community(body: CommunityIn, user: dict = Depends(current_user)):
+    if body.focus_area and body.focus_area not in FOCUS_AREAS:
+        raise HTTPException(422, "未知の注力分野です")
+    with get_conn() as conn:
+        if conn.execute("SELECT 1 FROM communities WHERE name = ?", (body.name.strip(),)).fetchone():
+            raise HTTPException(409, "同じ名前のコミュニティがあります。参加してください")
+        now = time.time()
+        cur = conn.execute(
+            "INSERT INTO communities (name, description, category, focus_area, area, created_by) VALUES (?,?,?,?,?,?)",
+            (body.name.strip(), body.description, body.category, body.focus_area, body.area, user["id"]))
+        conn.execute("INSERT INTO community_members (community_id, user_id, joined_at) VALUES (?,?,?)",
+                     (cur.lastrowid, user["id"], now))
+    return get_community(int(cur.lastrowid), user)
+
+
+@router.get("/issue-cards/{card_id}/community-candidates")
+def community_candidates(card_id: int, user: dict = Depends(current_user)):
+    """Communities to link an issue card to: the AI recommendation made in the
+    card's origin conversation (an AI proposal, F-03 / F-21), plus rule-based
+    matches on the origin thread and the focus area."""
+    with get_conn() as conn:
+        card = card_out(conn, card_id, user)
+        names = {r["id"]: r for r in conn.execute("SELECT * FROM communities ORDER BY id")}
+        ai = None
+        if card["origin_kind"] == "conversation" and card["origin_ref"]:
+            p = conn.execute("SELECT * FROM ai_proposals WHERE kind = 'recommendation' AND target_ref = ? AND created_by = ?"
+                             " ORDER BY id DESC LIMIT 1", (f"conversation:{card['origin_ref']}", card["author_id"])).fetchone()
+            if p:
+                out = proposals.to_out(p)
+                ai = {"id": out["id"], "status": out["status"], "model": out["model"],
+                      "items": [c for c in out["payload"]["communities"] if c["id"] in names]}
+        matches = []
+        if card["origin_kind"] == "thread" and card["origin_ref"]:
+            t = conn.execute("SELECT community_id FROM threads WHERE id = ?", (card["origin_ref"],)).fetchone()
+            if t:
+                matches.append({"id": t["community_id"], "name": names[t["community_id"]]["name"], "reason": "元のスレッドのコミュニティ"})
+        if card["focus_area"] in FOCUS_AREAS:
+            matches += [{"id": r["id"], "name": r["name"], "reason": f"注力分野が同じ（{FOCUS_AREAS[r['focus_area']]}）"}
+                        for r in names.values() if r["focus_area"] == card["focus_area"] and r["id"] not in {m["id"] for m in matches}]
+        return {"ai_recommendation": ai, "matches": matches,
+                "all": [community_out(conn, r, user["id"]) for r in names.values()]}
+
+
+class CardCommunityIn(BaseModel):
+    community_id: Optional[int] = None
+    recommendation_proposal_id: Optional[int] = None
+
+
+@router.put("/issue-cards/{card_id}/community")
+def link_card_community(card_id: int, body: CardCommunityIn, user: dict = Depends(current_user)):
+    with get_conn() as conn:
+        card = card_out(conn, card_id, user)
+        if card["author_id"] != user["id"]:
+            raise HTTPException(403, "課題カードの作成者だけがコミュニティを選べます")
+        now = time.time()
+        if body.community_id is not None:
+            if conn.execute("SELECT 1 FROM communities WHERE id = ?", (body.community_id,)).fetchone() is None:
+                raise HTTPException(404, "コミュニティが見つかりません")
+            conn.execute("INSERT OR IGNORE INTO community_members (community_id, user_id, joined_at) VALUES (?,?,?)",
+                         (body.community_id, user["id"], now))
+        if body.recommendation_proposal_id is not None:
+            prop = proposals.load(conn, body.recommendation_proposal_id, "recommendation")
+            if body.community_id not in {c["id"] for c in json.loads(prop["payload"])["communities"]}:
+                raise HTTPException(422, "AI が推薦したコミュニティではありません")
+            # Choosing a recommended community is the person's explicit adoption of the recommendation.
+            if prop["status"] == "proposed":
+                proposals.decide(conn, prop["id"], "adopted", user["id"],
+                                 result_ref=f"issue_card:{card_id}/community:{body.community_id}")
+        conn.execute("UPDATE issue_cards SET community_id = ?, updated_at = ? WHERE id = ?", (body.community_id, now, card_id))
+        return card_out(conn, card_id, user)
 
 
 @router.get("/communities/{cid}")
@@ -159,8 +241,12 @@ def me(user: dict = Depends(current_user)):
                              (user["id"],)).fetchall()
         joined = conn.execute("SELECT c.id, c.name FROM communities c JOIN community_members m ON m.community_id = c.id"
                               " WHERE m.user_id = ?", (user["id"],)).fetchall()
+        policy = {c["id"]: [dict(n) for n in conn.execute(
+            "SELECT id, title, published_at FROM news WHERE kind = 'policy' AND issue_card_id = ? ORDER BY id DESC",
+            (c["id"],))] for c in cards}
     return {**user, "unread_notifications": unread,
-            "issue_cards": [{**dict(c), "status_label": ISSUE_STATUS_LABELS[c["status"]]} for c in cards],
+            "issue_cards": [{**dict(c), "status_label": ISSUE_STATUS_LABELS[c["status"]], "policy_news": policy[c["id"]]}
+                            for c in cards],
             "communities": [dict(j) for j in joined]}
 
 

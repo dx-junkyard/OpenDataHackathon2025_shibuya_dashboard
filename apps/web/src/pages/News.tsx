@@ -14,7 +14,13 @@ type News = {
   source_url: string;
   is_sample: boolean;
   published_at: string;
+  kind: "local" | "policy";
+  issue_card?: { id: number; title: string; dashboard_slug: string | null } | null;
 };
+
+function PolicyBadge() {
+  return <span className="inline-block rounded-md bg-brand px-2 py-0.5 text-xs font-semibold text-white">📣 施策ニュース</span>;
+}
 
 type Message = {
   id: number;
@@ -46,9 +52,10 @@ export function NewsList() {
         <Link key={n.id} to={`/news/${n.id}`} className="block">
           <Card className="hover:border-brand">
             <p className="text-xs text-muted">
-              {n.category}・{n.department}・{n.published_at} {n.is_sample && <SampleBadge />}
+              {n.kind === "policy" && <PolicyBadge />} {n.category}・{n.department}・{n.published_at} {n.is_sample && <SampleBadge />}
             </p>
             <h2 className="mt-1 font-bold">{n.title}</h2>
+            {n.issue_card && <p className="mt-1 text-xs text-muted">区民の課題カード「{n.issue_card.title}」から</p>}
           </Card>
         </Link>
       ))}
@@ -85,10 +92,19 @@ export function NewsDetail() {
     <>
       <Card>
         <p className="text-xs text-muted">
-          {n.category}・{n.published_at} {n.is_sample && <SampleBadge />}
+          {n.kind === "policy" && <PolicyBadge />} {n.category}・{n.published_at} {n.is_sample && <SampleBadge />}
         </p>
         <h2 className="mt-1 text-lg font-bold">{n.title}</h2>
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{n.body}</p>
+        {n.issue_card && (
+          <div className="mt-3 rounded-lg bg-brand-soft p-3 text-sm">
+            <p className="text-xs text-muted">この施策は区民の課題カードから始まりました</p>
+            <Link className="font-semibold text-brand-strong underline" to={`/issues/${n.issue_card.id}`}>🗂 {n.issue_card.title}</Link>
+            {n.issue_card.dashboard_slug && (
+              <Link className="mt-1 block text-brand-strong underline" to={`/d/${n.issue_card.dashboard_slug}`}>📊 KPI の変化をダッシュボードで見る</Link>
+            )}
+          </div>
+        )}
         <p className="mt-3 text-xs text-muted">
           出典: {n.source_name}（担当: {n.department}）
           {n.source_url && (

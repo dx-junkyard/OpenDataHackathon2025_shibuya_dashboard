@@ -16,8 +16,18 @@ from ..deps import current_user
 router = APIRouter()
 
 
-def news_out(row) -> dict:
-    return {k: row[k] for k in row.keys()} | {"is_sample": bool(row["is_sample"])}
+def news_out(row, conn=None) -> dict:
+    out = {k: row[k] for k in row.keys()} | {"is_sample": bool(row["is_sample"])}
+    if conn is not None and row["kind"] == "policy" and row["issue_card_id"]:
+        # Policy news links back to the issue card and its public dashboard (F-14).
+        c = conn.execute(
+            "SELECT ic.id, ic.title, ic.status, d.public_slug, d.status AS dashboard_status FROM issue_cards ic"
+            " LEFT JOIN dashboards d ON d.issue_card_id = ic.id WHERE ic.id = ? AND ic.visibility != 'private'",
+            (row["issue_card_id"],)).fetchone()
+        out["issue_card"] = ({"id": c["id"], "title": c["title"],
+                              "dashboard_slug": c["public_slug"] if c["dashboard_status"] == "published" else None}
+                             if c else None)
+    return out
 
 
 @router.get("/news")
@@ -30,16 +40,17 @@ def list_news(category: Optional[str] = None):
     with get_conn() as conn:
         rows = conn.execute(q + " ORDER BY published_at DESC, id DESC", args).fetchall()
         cats = [r[0] for r in conn.execute("SELECT DISTINCT category FROM news ORDER BY category")]
-    return {"categories": cats, "items": [news_out(r) for r in rows]}
+        items = [news_out(r, conn) for r in rows]
+    return {"categories": cats, "items": items}
 
 
 @router.get("/news/{news_id}")
 def get_news(news_id: int):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM news WHERE id = ?", (news_id,)).fetchone()
-    if row is None:
-        raise HTTPException(404, "記事が見つかりません")
-    return news_out(row)
+        if row is None:
+            raise HTTPException(404, "記事が見つかりません")
+        return news_out(row, conn)
 
 
 class ConversationCreate(BaseModel):

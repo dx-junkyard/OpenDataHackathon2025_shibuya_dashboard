@@ -5,7 +5,7 @@ import { Card, Loading } from "../components/ui";
 
 type Me = User & {
   unread_notifications: number;
-  issue_cards: { id: number; title: string; status: string; status_label: string }[];
+  issue_cards: { id: number; title: string; status: string; status_label: string; policy_news: { id: number; title: string; published_at: string }[] }[];
   communities: { id: number; name: string }[];
 };
 type Notification = { id: number; text: string; link: string; is_read: number; created_at: number };
@@ -58,10 +58,17 @@ export function MePage() {
         <h2 className="mb-2 font-bold">あなたの課題カード</h2>
         {me.data.issue_cards.length === 0 && <p className="text-sm text-muted">まだありません。</p>}
         {me.data.issue_cards.map((c) => (
-          <Link key={c.id} to={`/issues/${c.id}`} className="mb-3 block">
-            <p className="text-sm font-semibold underline">{c.title}</p>
-            <Progress status={c.status} />
-          </Link>
+          <div key={c.id} className="mb-3">
+            <Link to={`/issues/${c.id}`} className="block">
+              <p className="text-sm font-semibold underline">{c.title}</p>
+              <Progress status={c.status} />
+            </Link>
+            {c.policy_news.map((n) => (
+              <p key={n.id} className="mt-1 text-xs">
+                📣 施策ニュース: <Link className="text-brand-strong underline" to={`/news/${n.id}`}>{n.title}</Link>（{n.published_at}）
+              </p>
+            ))}
+          </div>
         ))}
       </Card>
     </>

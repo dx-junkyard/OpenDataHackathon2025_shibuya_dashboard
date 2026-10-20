@@ -6,6 +6,7 @@ required by docs/features.md F-16 / F-21 can be reconstructed.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
@@ -54,7 +55,8 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS ai_proposals (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('issue_card_draft','dataset_candidates','shaping_plan','recommendation')),
+    kind TEXT NOT NULL CHECK (kind IN ('issue_card_draft','dataset_candidates','shaping_plan','recommendation',
+        'policy_news_draft')),
     target_ref TEXT NOT NULL,
     payload TEXT NOT NULL,
     evidence TEXT NOT NULL DEFAULT '[]',
@@ -109,12 +111,42 @@ CREATE TABLE IF NOT EXISTS datasets (
     description TEXT NOT NULL DEFAULT '',
     source_url TEXT NOT NULL DEFAULT '',
     license TEXT NOT NULL DEFAULT '',
-    file_format TEXT NOT NULL CHECK (file_format IN ('csv','xlsx')),
+    file_format TEXT NOT NULL CHECK (file_format IN ('csv','xlsx','pdf','html')),
     file_path TEXT NOT NULL,
     updated_on TEXT NOT NULL DEFAULT '',
     granularity TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '',
-    is_sample INTEGER NOT NULL DEFAULT 0
+    is_sample INTEGER NOT NULL DEFAULT 0,
+    source_key TEXT,
+    file_url TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS datasets_source_key ON datasets(source_key) WHERE source_key IS NOT NULL;
+
+-- One row per fetched version of an ingested dataset; rows of all snapshots
+-- together form a time series keyed by as_of (取得時点).
+CREATE TABLE IF NOT EXISTS dataset_snapshots (
+    id INTEGER PRIMARY KEY,
+    dataset_id INTEGER NOT NULL REFERENCES datasets(id),
+    as_of TEXT NOT NULL,
+    file_format TEXT NOT NULL CHECK (file_format IN ('csv','xlsx','pdf','html')),
+    file_path TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    fetched_at REAL NOT NULL,
+    UNIQUE (dataset_id, as_of)
+);
+
+-- What each ingest run looked at and whether it succeeded, so that a missing
+-- source is recorded as such instead of being filled with made-up data.
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('dataset','news')),
+    source TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok','unchanged','not_found','failed')),
+    message TEXT NOT NULL DEFAULT '',
+    result_ref TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS kpi_points (
@@ -140,6 +172,8 @@ CREATE TABLE IF NOT EXISTS annotations (
     dashboard_id INTEGER NOT NULL REFERENCES dashboards(id),
     period TEXT NOT NULL,
     label TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'event' CHECK (kind IN ('policy_start','event','definition_change')),
+    news_id INTEGER REFERENCES news(id),
     created_by INTEGER NOT NULL REFERENCES users(id),
     created_at REAL NOT NULL
 );
@@ -161,7 +195,8 @@ CREATE TABLE IF NOT EXISTS communities (
     category TEXT NOT NULL DEFAULT '',
     focus_area TEXT NOT NULL DEFAULT '',
     area TEXT NOT NULL DEFAULT '',
-    hot_topic TEXT NOT NULL DEFAULT ''
+    hot_topic TEXT NOT NULL DEFAULT '',
+    created_by INTEGER REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS community_members (
@@ -206,7 +241,37 @@ def init_db() -> None:
     path = db_path()
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with get_conn() as conn:
+        _migrate(conn)
         conn.executescript(SCHEMA)
+
+
+def _normalize(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql.replace("IF NOT EXISTS ", "").replace('"', "")).strip().rstrip(";")
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Rebuild any existing table whose definition differs from SCHEMA.
+
+    SQLite cannot alter CHECK constraints, so a changed table is recreated and
+    the columns it shares with the old one are copied. Rows are never dropped.
+    """
+    wanted = {m.group(1): m.group(0) for m in re.finditer(r"CREATE TABLE IF NOT EXISTS (\w+) \(.*?\n\);", SCHEMA, re.S)}
+    current = {r["name"]: r["sql"] for r in conn.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'")}
+    stale = [n for n, sql in wanted.items() if n in current and _normalize(current[n]) != _normalize(sql)]
+    if not stale:
+        return
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    for name in stale:
+        old_cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({name})")]
+        conn.execute(wanted[name].replace(f"IF NOT EXISTS {name} ", f"{name}__new ", 1))
+        new_cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({name}__new)")}
+        cols = ", ".join(c for c in old_cols if c in new_cols)
+        conn.execute(f"INSERT INTO {name}__new ({cols}) SELECT {cols} FROM {name}")
+        conn.execute(f"DROP TABLE {name}")
+        conn.execute(f"ALTER TABLE {name}__new RENAME TO {name}")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
 
 
 @contextmanager

@@ -145,6 +145,9 @@ def create_issue_card(body: IssueCardCreate, user: dict = Depends(current_user))
             raise HTTPException(422, {"code": "personal_info", "message": f"公開前に確認してください: {'・'.join(found)} が含まれている可能性があります", "found": found})
     now = time.time()
     with get_conn() as conn:
+        if body.community_id is not None and conn.execute(
+                "SELECT 1 FROM communities WHERE id = ?", (body.community_id,)).fetchone() is None:
+            raise HTTPException(422, "コミュニティが見つかりません")
         decision = None
         if body.proposal_id is not None:
             prop = proposals.load(conn, body.proposal_id, "issue_card_draft")
@@ -169,6 +172,11 @@ def create_issue_card(body: IssueCardCreate, user: dict = Depends(current_user))
              "draft" if body.visibility == "private" else "published", now, now),
         )
         card_id = int(cur.lastrowid)
+        if body.community_id is not None:
+            # The author follows the community the card belongs to, so its replies and the
+            # district's decisions reach them (F-15).
+            conn.execute("INSERT OR IGNORE INTO community_members (community_id, user_id, joined_at) VALUES (?,?,?)",
+                         (body.community_id, user["id"], now))
         for i, k in enumerate(body.kpis):
             conn.execute(
                 "INSERT INTO kpis (issue_card_id, name, unit, measurement, data_availability, position) VALUES (?,?,?,?,?,?)",
@@ -209,6 +217,11 @@ def card_out(conn, card_id: int, viewer: Optional[dict]) -> dict:
             " WHERE dashboard_id = ? ORDER BY ad.id DESC LIMIT 1", (dash["id"],)).fetchone()
         decision = dict(d) if d else None
     out["latest_decision"] = decision
+    out["policy_news"] = [dict(n) for n in conn.execute(
+        "SELECT id, title, published_at, department FROM news WHERE kind = 'policy' AND issue_card_id = ? ORDER BY id DESC",
+        (card_id,))]
+    out["community"] = (dict(conn.execute("SELECT id, name FROM communities WHERE id = ?", (c["community_id"],)).fetchone())
+                        if c["community_id"] else None)
     return out
 
 

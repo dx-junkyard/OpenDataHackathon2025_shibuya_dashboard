@@ -33,6 +33,11 @@ export function IssueNew() {
   const [manual, setManual] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<"public" | "community" | "private">("public");
   const [ackPii, setAckPii] = useState(false);
+  const [communityId, setCommunityId] = useState(kind === "thread" ? params.get("community") ?? "" : "");
+  const communities = useQuery({
+    queryKey: ["communities", ""],
+    queryFn: () => api<{ items: { id: number; name: string; joined: boolean }[] }>("/communities?q="),
+  });
   const requested = useRef(false);
 
   const draft = useMutation({
@@ -68,7 +73,7 @@ export function IssueNew() {
           kpis: picked.map((i) => form.kpi_candidates[i]),
           origin_kind: kind && ref ? kind : "manual",
           origin_ref: ref ?? "",
-          community_id: kind === "thread" ? Number(params.get("community")) || null : null,
+          community_id: Number(communityId) || null,
           visibility,
           acknowledge_personal_info: ackPii,
         },
@@ -203,6 +208,15 @@ export function IssueNew() {
             </Button>
           </div>
         </fieldset>
+        <Field label="コミュニティ（任意・あとからでも選べます）">
+          <select className="input" value={communityId} onChange={(e) => setCommunityId(e.target.value)}>
+            <option value="">つながない</option>
+            {communities.data?.items.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}{c.joined ? "（参加中）" : ""}</option>
+            ))}
+          </select>
+          {communityId && <p className="mt-1 text-xs text-muted">保存するとこのコミュニティに参加し、区の判断や施策ニュースがメンバーにも届きます。</p>}
+        </Field>
         <Field label="公開範囲">
           <select className="input" value={visibility} onChange={(e) => setVisibility(e.target.value as typeof visibility)}>
             <option value="public">全体公開</option>

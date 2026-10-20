@@ -43,6 +43,16 @@ def list_datasets():
         return {"items": [dataset_out(r) for r in conn.execute("SELECT * FROM datasets ORDER BY id")]}
 
 
+@router.get("/ingest-runs")
+def list_ingest_runs(kind: Optional[str] = None, limit: int = 50):
+    """What the real-data ingest looked at, including sources it could not fetch (F-08 の検索範囲)."""
+    q, args = "SELECT * FROM ingest_runs", ()
+    if kind:
+        q, args = q + " WHERE kind = ?", (kind,)
+    with get_conn() as conn:
+        return {"items": [dict(r) for r in conn.execute(q + " ORDER BY id DESC LIMIT ?", (*args, min(limit, 200)))]}
+
+
 @router.post("/datasets", status_code=201)
 async def register_dataset(
     title: str = Form(..., min_length=1, max_length=200),
@@ -57,8 +67,9 @@ async def register_dataset(
     user: dict = Depends(current_user),
 ):
     ext = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
-    if ext not in ("csv", "xlsx"):
-        raise HTTPException(422, "MVP では CSV / Excel（.xlsx）のみ登録できます")
+    ext = {"htm": "html"}.get(ext, ext)
+    if ext not in shaping.FILE_FORMATS:
+        raise HTTPException(422, "CSV / Excel（.xlsx）/ PDF / HTML のみ登録できます")
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, "ファイルは 10MB までです")
@@ -100,11 +111,35 @@ class PlanRequest(BaseModel):
     search_proposal_id: Optional[int] = None
 
 
-def _load_rows(ds) -> list:
+def _read(file_path: str, file_format: str) -> list:
     try:
-        return shaping.read_table(shaping.dataset_file(os.path.abspath(datasets_dir()), ds["file_path"]), ds["file_format"])
+        return shaping.read_tables(shaping.dataset_file(os.path.abspath(datasets_dir()), file_path), file_format)
     except (OSError, shaping.ShapingError) as exc:
         raise HTTPException(422, f"データを読み込めませんでした: {exc}") from exc
+
+
+def _snapshots(ds) -> list:
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT as_of, file_path, file_format FROM dataset_snapshots WHERE dataset_id = ? ORDER BY as_of", (ds["id"],))]
+
+
+def _plan_rows(ds, snaps: list, plan: dict) -> list:
+    """Rows the plan runs on: the selected table of the file, or of every snapshot with 取得時点 added."""
+    if not snaps:
+        return shaping.table_rows(_read(ds["file_path"], ds["file_format"]), plan)
+    rows = []
+    for s in snaps:
+        rows += [{**r, shaping.SNAPSHOT_COLUMN: s["as_of"]}
+                 for r in shaping.table_rows(_read(s["file_path"], s["file_format"]), plan)]
+    return rows
+
+
+def _snapshot_note(snaps: list) -> str:
+    if not snaps:
+        return ""
+    return (f"このデータセットは取得時点ごとの版が {len(snaps)} 回分（{'、'.join(s['as_of'] for s in snaps)}）あり、"
+            f"表の各行に「{shaping.SNAPSHOT_COLUMN}」列（YYYY-MM-DD）が付きます。")
 
 
 @router.post("/kpis/{kpi_id}/shaping-plans", status_code=201)
@@ -122,19 +157,24 @@ def propose_shaping(kpi_id: int, req: PlanRequest, user: dict = Depends(current_
                 ids = [c["dataset"]["id"] for c in json.loads(sp["payload"])["candidates"]]
                 proposals.decide(conn, sp["id"], "adopted" if req.dataset_id in ids else "adopted_edited",
                                  user["id"], result_ref=f"dataset:{req.dataset_id}")
-    rows = _load_rows(ds)
-    if not rows:
+    snaps = _snapshots(ds)
+    tables = _read(snaps[-1]["file_path"], snaps[-1]["file_format"]) if snaps else _read(ds["file_path"], ds["file_format"])
+    if not any(len(t["rows"]) > 1 for t in tables):
         raise HTTPException(422, "データが空です")
-    columns = list(rows[0].keys())
     try:
-        plan = shaping.propose_plan(dict(k), columns, rows[:8])
+        plan = shaping.propose_plan(dict(k), tables, _snapshot_note(snaps))
     except llm.LLMUnavailable as exc:
         raise HTTPException(503, {"code": "ai_unavailable", "message": str(exc)}) from exc
-    payload = {"dataset_id": req.dataset_id, "plan": plan, "columns": columns, "before_sample": rows[:5],
-               "warnings": shaping.plan_warnings(plan, shaping.profile_columns(rows))}
+    payload = {"dataset_id": req.dataset_id, "plan": plan, "columns": [], "before_sample": [], "warnings": [],
+               "tables": [{"index": i, "name": t["name"], "row_count": len(t["rows"])} for i, t in enumerate(tables)],
+               "snapshots": [s["as_of"] for s in snaps]}
     try:
-        points = shaping.apply_plan(rows, plan)
-        payload["after_preview"] = points
+        rows = _plan_rows(ds, snaps, plan)
+        payload["columns"] = list(rows[0].keys()) if rows else []
+        payload["before_sample"] = rows[:5]
+        payload["warnings"] = shaping.plan_warnings(plan, shaping.profile_columns(rows),
+                                                    snapshot_count=len(snaps) if snaps else None)
+        payload["after_preview"] = shaping.apply_plan(rows, plan)
         payload["preview_error"] = ""
     except shaping.ShapingError as exc:
         payload["after_preview"] = []
@@ -161,9 +201,8 @@ def adopt_shaping(proposal_id: int, body: AdoptPlan, user: dict = Depends(curren
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (payload["dataset_id"],)).fetchone()
     plan = body.plan or payload["plan"]
     edited = body.plan is not None and body.plan != payload["plan"]
-    rows = _load_rows(ds)
     try:
-        points = shaping.apply_plan(rows, plan)
+        points = shaping.apply_plan(_plan_rows(ds, _snapshots(ds), plan), plan)
     except shaping.ShapingError as exc:
         raise HTTPException(422, str(exc)) from exc
     with get_conn() as conn:

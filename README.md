@@ -29,6 +29,7 @@ cd apps/api
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m app.seed
+.venv/bin/python -m app.ingest all   # 実データ（東京都・渋谷区のオープンデータ、区のニュース）を取り込む。任意
 LLM_API_KEY=... .venv/bin/uvicorn app.main:app --port 8100
 ```
 
@@ -42,8 +43,11 @@ http://localhost:5180 を開き、右上で利用者（保護者・区職員な�
 
 | 環境変数 | 意味 |
 | --- | --- |
-| `LLM_API_KEY` | OpenAI 互換 API のキー。未設定なら AI は使えず、手入力で操作できる（AI 失敗を成功に見せない） |
-| `LLM_MODEL` | 既定 `gpt-5.4-mini` |
+| `LLM_PROVIDER` | `openai`（既定）または `anthropic`。`anthropic` にすると Claude API（既定モデル Claude Opus 5.5）を使う |
+| `ANTHROPIC_API_KEY` | `LLM_PROVIDER=anthropic` のときの Claude API キー。代わりに `ant auth login` のプロファイルも使える。Claude Code のサブスクリプション（ログイン）は使わない |
+| `LLM_EFFORT` | `anthropic` のときの effort（既定 `medium`） |
+| `LLM_API_KEY` | `LLM_PROVIDER=openai` のときの OpenAI 互換 API のキー。未設定なら AI は使えず、手入力で操作できる（AI 失敗を成功に見せない） |
+| `LLM_MODEL` | モデルを上書きする。既定は `openai` なら `gpt-5.4-mini`、`anthropic` なら `claude-opus-5-5` |
 | `PROBE_ENABLED` / `PROBE_SERVER_URL` / `PROBE_API_KEY` | probe-agent へ trace を送る。SDK は `pip install -e <probe-agent>/packages/python-probe` |
 
 テスト: `apps/api/.venv/bin/python -m pytest apps/api/tests`
@@ -51,4 +55,10 @@ http://localhost:5180 を開き、右上で利用者（保護者・区職員な�
 ## データについて
 
 シードのニュースとデータセットはすべて **架空のデモ用サンプル** で、画面と CSV に「サンプル（架空）」と表示する。
-実データは「データセット登録」API（CSV / Excel）から出典・ライセンス付きで登録する。
+
+実データは次の 2 つの方法で、出典・提供者・ライセンス・更新日付きで登録する。
+
+- `python -m app.ingest [datasets|news|all]`: 東京都オープンデータカタログ（CKAN）・渋谷区オープンデータ（ArcGIS Hub）から
+  代表シナリオのデータセットを、渋谷区ホームページの新着情報を担当課・掲載日付きで取り込む。取得できなかったものは
+  架空の値で埋めず `GET /api/ingest-runs` に記録する。対象と確認結果は [docs/features.md §7](docs/features.md#7-実装状況と検証2026-10-20)。
+- 「データセット登録」API（CSV / Excel / PDF / HTML）。PDF は罫線のある表、HTML は table 要素を読み取る。

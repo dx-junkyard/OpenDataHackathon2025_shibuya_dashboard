@@ -102,6 +102,39 @@ export type IssueCard = {
   dashboard: { id: number; public_slug: string; status: string } | null;
   origin_proposal: { id: number; status: string; model: string } | null;
   latest_decision: { state: string; reason: string; department: string; decided_by_name: string } | null;
+  policy_news: PolicyNewsLink[];
+  community: { id: number; name: string } | null;
+  origin_kind: string;
+  origin_ref: string;
+};
+
+export type PolicyNewsLink = { id: number; title: string; published_at: string; department?: string };
+
+export type Annotation = {
+  id: number;
+  period: string;
+  label: string;
+  kind: "policy_start" | "event" | "definition_change";
+  kind_label: string;
+  news_id: number | null;
+};
+
+export type Comparison = {
+  annotation_id: number;
+  period: string;
+  label: string;
+  kind: Annotation["kind"];
+  kpis: {
+    kpi_id: number;
+    name: string;
+    unit: string;
+    before_value: number | null;
+    after_value: number | null;
+    after_periods: number;
+    before_per_period: number | null;
+    after_per_period: number | null;
+    state: "ok" | "no_after" | "no_before" | "no_data";
+  }[];
 };
 
 export type KpiSummary = {
@@ -129,7 +162,10 @@ export type DashboardView = {
   kpis: KpiSummary[];
   dashboard: { id: number; public_slug: string; status: string } | null;
   latest_decision: { state: string; reason: string; department: string } | null;
-  annotations: { period: string; label: string }[];
+  annotations: Annotation[];
+  comparisons: Comparison[];
+  causality_note: string;
+  policy_news: PolicyNewsLink[];
   community_id?: number | null;
   community_members?: number;
 };

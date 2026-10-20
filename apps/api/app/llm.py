@@ -1,5 +1,9 @@
 """Reasoning-model client used by every AI agent.
 
+LLM_PROVIDER selects the backend: "openai" (default, OpenAI-compatible chat
+completions below) or "anthropic" (Claude Opus 5.5 via the Anthropic SDK, in
+`llm_claude.py`). LLM_MODEL overrides the provider's default model.
+
 The agents only ever produce proposals (docs/features.md F-21). When no model
 is configured, or the call fails, `LLMUnavailable` is raised so the caller can
 show the failure and fall back to manual input (F-18). There is deliberately
@@ -18,16 +22,34 @@ class LLMUnavailable(RuntimeError):
     """The model could not be used; callers must surface this, not hide it."""
 
 
+PROVIDERS = ("openai", "anthropic")
+
+
+def provider() -> str:
+    return os.getenv("LLM_PROVIDER", "openai")
+
+
 def model_name() -> str:
-    return os.getenv("LLM_MODEL", "gpt-5.4-mini")
+    default = "claude-opus-5-5" if provider() == "anthropic" else "gpt-5.4-mini"
+    return os.getenv("LLM_MODEL") or default
 
 
 def is_configured() -> bool:
-    return os.getenv("LLM_PROVIDER", "openai") == "openai" and bool(os.getenv("LLM_API_KEY"))
+    if provider() == "anthropic":
+        from .llm_claude import has_credentials
+
+        return has_credentials()
+    return provider() == "openai" and bool(os.getenv("LLM_API_KEY"))
 
 
 def complete_json(system: str, user: str, schema: Dict[str, Any], schema_name: str) -> Dict[str, Any]:
     """Ask the model for a JSON object that satisfies `schema` (strict)."""
+    if provider() not in PROVIDERS:
+        raise LLMUnavailable(f"未知の LLM_PROVIDER です: {provider()}")
+    if provider() == "anthropic":
+        from .llm_claude import complete_json as claude_complete_json
+
+        return claude_complete_json(system, user, schema, model_name())
     if not is_configured():
         raise LLMUnavailable("AI が設定されていません（LLM_API_KEY 未設定）")
     base = os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1"

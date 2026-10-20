@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError, getUserId, type Dataset, type DashboardView, type IssueCard, type Kpi, type Proposal } from "../api";
+import { CommunityLink } from "../components/CommunityLink";
+import { DashboardAnnotations } from "../components/DashboardAnnotations";
 import { KpiCard } from "../components/KpiCard";
 import { AiBadge, Button, Card, ErrorNote, Loading, SampleBadge } from "../components/ui";
 
@@ -160,6 +162,7 @@ export function IssueDetail() {
   const { id } = useParams();
   const qc = useQueryClient();
   const card = useQuery({ queryKey: ["issue", id], queryFn: () => api<IssueCard>(`/issue-cards/${id}`) });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<{ role: string }>("/me") }).data;
   const preview = useQuery({
     queryKey: ["issue-dashboard", id],
     queryFn: () => api<DashboardView>(`/issue-cards/${id}/dashboard`),
@@ -170,6 +173,7 @@ export function IssueDetail() {
     qc.invalidateQueries({ queryKey: ["issue", id] });
     qc.invalidateQueries({ queryKey: ["issue-dashboard", id] });
     qc.invalidateQueries({ queryKey: ["me"] });
+    qc.invalidateQueries({ queryKey: ["community-candidates", Number(id)] });
   };
   const publish = useMutation({
     mutationFn: () => api(`/issue-cards/${id}/dashboard/publish`, { method: "POST", json: { acknowledge_personal_info: ack } }),
@@ -213,7 +217,25 @@ export function IssueDetail() {
             <span className="block text-xs">理由: {c.latest_decision.reason}</span>
           </p>
         )}
+        {c.policy_news.length > 0 && (
+          <div className="mt-3 rounded-lg border border-brand p-3 text-sm">
+            <p className="font-semibold">📣 この課題から始まった施策</p>
+            <ul>
+              {c.policy_news.map((n) => (
+                <li key={n.id}>
+                  <Link className="text-brand-strong underline" to={`/news/${n.id}`}>{n.title}</Link>
+                  <span className="ml-1 text-xs text-muted">{n.published_at}・{n.department}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!mine && c.community && (
+          <p className="mt-3 text-sm">👥 <Link className="underline" to={`/community/${c.community.id}`}>{c.community.name}</Link></p>
+        )}
       </Card>
+
+      {mine && <CommunityLink card={c} onDone={refresh} />}
 
       {mine && (
         <Card>
@@ -232,6 +254,9 @@ export function IssueDetail() {
             {published && <Link className="text-sm text-brand-strong underline" to={`/d/${c.dashboard!.public_slug}`}>公開ページ</Link>}
           </div>
           {preview.data.kpis.map((k) => <KpiCard key={k.id} kpi={k} annotations={preview.data!.annotations} />)}
+          {c.dashboard && (
+            <DashboardAnnotations view={preview.data} cardId={c.id} canEdit={mine || me?.role === "staff"} onDone={refresh} />
+          )}
           {mine && (
             <Card>
               {published ? (
