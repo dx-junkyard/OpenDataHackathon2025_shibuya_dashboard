@@ -4,6 +4,16 @@ An AI output becomes an `ai_proposals` row in status `proposed`. Only an
 explicit human decision moves it to `adopted` / `adopted_edited` /
 `rejected`, and only adoption may create a formal entity. Decisions are
 recorded with `decision_method='manual'`, the deciding user and the time.
+
+probe-agent:
+  role: AI 提案の保存・参照・採否の記録を担う共通モジュールで、候補が正式なエンティティへ採用される境界の土台
+  capability: AI 提案（ai_proposals）の管理と、人による採用・却下のガバナンス（F-21）
+  system_purpose: AI が出した候補を提案のまま保持し、人の明示操作でのみ正式なエンティティへ進める責任分界を支える
+  probe_value: スレッド要約などの候補が後続で採用された割合を解釈する共通の境界で、提案の状態の観測点になる
+  element_type: boundary
+  operation_kind: orchestration
+  consumers: [apps.api.app.routes.issues, apps.api.app.routes.communities, apps.api.app.routes.data, apps.api.app.routes.policy]
+  state_effects: [database-read, database-write]
 """
 from __future__ import annotations
 
