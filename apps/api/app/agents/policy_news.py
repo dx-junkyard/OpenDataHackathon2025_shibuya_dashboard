@@ -30,7 +30,7 @@ def draft(context: str, categories: List[str]) -> Dict[str, Any]:
     """
     probe-agent:
       role: 区職員が採用した課題カードから施策ニュースの下書きを生成する AI エージェント入口
-      capability: 採用された施策をニュースとして区民へ還流する
+      capability: F-14 施策ニュース化と還流（採用された施策をニュースとして区民へ還流する）
       system_purpose: 区の判断を当事者とコミュニティへ返し、つくる → 公開 → 採用 の循環を閉じる
       probe_value: 区の公式発信の下書きになるため、創作・効果の断定がないかを観測する価値が高い
       element_type: capability

@@ -47,7 +47,7 @@ def search(kpi: Dict[str, Any], catalog: List[Dict[str, Any]]) -> Dict[str, Any]
 
     probe-agent:
       role: KPI候補に関連するオープンデータ探索を行うエージェント入口
-      capability: 根拠付きKPIダッシュボードを公開する
+      capability: F-08 オープンデータ検索（KPI に関連するデータセットを探す）
       system_purpose: 課題カードに対応するKPI候補とデータ根拠を見つけ、追跡ダッシュボード公開の材料を揃える
       probe_value: KPI選定から公開までの不足していた詳細フローのうち、データ検索段階の実装接点として重要
       element_type: capability

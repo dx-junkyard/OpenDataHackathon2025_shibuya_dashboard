@@ -21,6 +21,17 @@ SCHEMA = llm.obj(
 
 @observed("recommend-agent")
 def recommend(interest: str, communities: List[Dict[str, Any]], cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    probe-agent:
+      role: 会話で言葉になった関心から、関連するコミュニティと既存の課題カードを理由付きで推薦する AI エージェント入口
+      capability: F-03 関心からのコミュニティ・課題推薦
+      system_purpose: 一人の関心を、同じ関心を持つ人のコミュニティと既存の課題へつなぎ、深掘りの循環へ入れる
+      probe_value: 推薦がコミュニティ一覧にない id を返していないか、推薦が採用された割合を観測できる
+      element_type: capability
+      operation_kind: analysis
+      consumers: [apps.api.app.routes.communities.recommendations]
+      state_effects: [external-api]
+    """
     lines = ["関心:", interest, "", "コミュニティ:"]
     lines += [f"- id={c['id']} {c['name']} / {c['description']} / 分野: {c['focus_area']}" for c in communities]
     lines += ["", "課題カード:"]

@@ -281,7 +281,7 @@ def propose_plan(kpi: Dict[str, Any], tables: List[Dict[str, Any]], note: str = 
     """
     probe-agent:
       role: データ整形計画をAI候補として提案する入口
-      capability: 根拠付きKPIダッシュボードを公開する
+      capability: F-09 データ整形支援（KPI 用の整形計画を AI 候補として提案する）
       system_purpose: 公開可能なKPI時系列へ向けて、元データから必要な整形手順を候補として提示する
       probe_value: データ整形もAI候補であり人が採用するという原則の適用先として、提案内容と警告の妥当性を確認しやすい
       element_type: capability
@@ -304,7 +304,7 @@ def plan_warnings(plan: Dict[str, Any], profile: Dict[str, Any], snapshot_count:
 
     probe-agent:
       role: 整形計画のリスクや欠落条件を警告として抽出する検証関数
-      capability: 根拠付きKPIダッシュボードを公開する
+      capability: F-09 データ整形支援、F-16 根拠・出典トレース（整形計画の欠落を決定的に警告する）
       system_purpose: 不完全なデータ整形や誤読を防ぎ、人が公開判断する前に注意点を明示する
       probe_value: 欠損や条件不足を可視化する支援要素であり、ダッシュボードの誤解防止ガードレールとして重要
       element_type: supporting
@@ -367,7 +367,7 @@ def apply_plan(rows: List[Dict[str, str]], plan: Dict[str, Any]) -> List[Dict[st
 
     probe-agent:
       role: 採用された整形計画を実データへ適用する変換処理
-      capability: 根拠付きKPIダッシュボードを公開する
+      capability: F-09 データ整形支援（採用された整形計画を決定的に適用する）
       system_purpose: オープンデータをKPI時系列へ変換し、公開ダッシュボードの実データを成立させる
       probe_value: AI候補から人手採用後に実際のデータ変換へ進む境界であり、MVPデータパイプラインの中核を観測できる
       element_type: core

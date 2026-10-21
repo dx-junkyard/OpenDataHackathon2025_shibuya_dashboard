@@ -39,7 +39,7 @@ def respond(article: Dict[str, Any] | None, history: List[Dict[str, str]]) -> Di
 
     probe-agent:
       role: ニュース文脈を保ったAI対話応答を生成するエージェント入口
-      capability: ニュース閲覧から文脈保持されたAI対話へ入る
+      capability: F-02 記事文脈つき AI 対話（ニュース閲覧から文脈を保った AI 対話へ入る）
       system_purpose: ニュースを起点に関心を引き出し、思考整理の入口を提供して課題化の循環へ接続する
       probe_value: 代表フローの最初のAI接点であり、記事文脈の保持、AI応答可否、障害時の退避挙動を確認する価値が高い
       element_type: capability

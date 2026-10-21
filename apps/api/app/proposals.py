@@ -34,7 +34,7 @@ def create(conn: sqlite3.Connection, *, kind: str, target_ref: str, payload: Dic
     """
     probe-agent:
       role: AI提案を共通の提案レコードとして作成する共通パターンの入口（課題カード下書き・データ候補・整形案など全 AI 提案に共通）
-      capability: 会話やコミュニティから課題候補・課題カードへ昇格させる
+      capability: F-21 AI 提案の共通パターン（会話やコミュニティから課題候補・課題カードへ昇格させる）
       system_purpose: AI生成物を正式決定ではなく候補として保持し、人の明示操作に接続する共通基盤を提供する
       probe_value: 全AI候補に共通する承認パターンの起点であり、代表フロー横断の計測点として価値が高い
       element_type: core
@@ -62,7 +62,7 @@ def require_open(row: sqlite3.Row) -> None:
     """
     probe-agent:
       role: 未決または受付中の提案だけを後続操作可能にする状態ガード（課題カード下書き・データ候補・整形案など全 AI 提案に共通）
-      capability: 会話やコミュニティから課題候補・課題カードへ昇格させる
+      capability: F-21 AI 提案の共通パターン（判断済みの提案の再操作を防ぐ）
       system_purpose: 提案ライフサイクルを制御し、重複決定や不正な再操作を防ぐ
       probe_value: 共通承認パターンの状態整合性を補強するため、決定処理の周辺ガードとして観測価値がある
       element_type: supporting
@@ -78,7 +78,7 @@ def decide(conn: sqlite3.Connection, proposal_id: int, decision: str, user_id: i
     """
     probe-agent:
       role: 提案に対する人手の採用・却下判断を記録する共通決定処理（課題カード下書き・データ候補・整形案など全 AI 提案に共通）
-      capability: 会話やコミュニティから課題候補・課題カードへ昇格させる
+      capability: F-21 AI 提案の共通パターン（人の明示操作だけが採用・却下を記録する）
       system_purpose: AI候補に対する最終判断を人が担うという統治原則を実装し、正式化の責任境界を明確にする
       probe_value: AI候補が正式化される唯一の人手判断境界を捉えられるため、最重要のガードレール計測点になりうる
       element_type: core

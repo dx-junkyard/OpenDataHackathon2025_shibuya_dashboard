@@ -67,7 +67,7 @@ def summarize(title: str, posts: List[Dict[str, str]]) -> Dict[str, Any]:
 
     probe-agent:
       role: スレッドの発言を要約し、発言番号の根拠付きで課題候補を提示するAIエージェント入口
-      capability: 会話やコミュニティから課題候補・課題カードへ昇格させる
+      capability: F-05 スレッド要約・課題候補提示（Community 形成支援 Agent）
       system_purpose: 一人の不満をコミュニティで共有された課題にし、根拠付きの課題カード作成へ橋渡しする（OBJ-2 / MS-2.1）
       probe_value: 根拠のない要約・候補を除外できているか、候補が課題カードに採用されたかを観測できる
       element_type: capability
