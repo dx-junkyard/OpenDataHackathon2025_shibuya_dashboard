@@ -185,7 +185,18 @@ def get_thread(tid: int, user: dict = Depends(current_user)):
 
 def _latest_summary(conn, tid: int, post_count: int) -> Optional[dict]:
     """The newest AI summary of the thread that was not rejected. `stale` tells the
-    reader that posts were added after it was made, so it does not cover them."""
+    reader that posts were added after it was made, so it does not cover them.
+
+    probe-agent:
+      role: スレッドの最新の要約（却下されていないもの）を取得し、古さと作られた課題カードを添えて返す補助関数
+      capability: F-05 スレッド要約結果の参照と、候補から作られた課題カードの可視化（UXP-8）
+      system_purpose: 生成済みの要約と候補を画面で再利用し、議論の結果が課題カードになったことを参加者が追えるようにする
+      probe_value: 提示された候補数と、そのうち課題カードになった数（候補の採用率）を読み出せる
+      element_type: supporting
+      operation_kind: read
+      consumers: [apps.api.app.routes.communities.get_thread, apps.api.app.routes.communities.summarize_thread]
+      state_effects: [database-read]
+    """
     row = conn.execute("SELECT * FROM ai_proposals WHERE kind = 'thread_summary' AND target_ref = ? AND status != 'rejected'"
                        " ORDER BY id DESC LIMIT 1", (f"thread:{tid}",)).fetchone()
     if row is None:
@@ -207,7 +218,18 @@ def _latest_summary(conn, tid: int, post_count: int) -> Optional[dict]:
 
 @router.post("/threads/{tid}/summary", status_code=201)
 def summarize_thread(tid: int, user: dict = Depends(current_user)):
-    """Community 形成支援 Agent (F-05): an AI summary with issue candidates, as a proposal."""
+    """Community 形成支援 Agent (F-05): an AI summary with issue candidates, as a proposal.
+
+    probe-agent:
+      role: スレッドの発言（名前を除き連絡先を伏せたもの）から要約と課題候補を生成し、AI 提案として保存する API ハンドラ
+      capability: F-05 スレッド要約と課題候補の生成
+      system_purpose: コミュニティで深掘りされた議論を、根拠付きの要約点と課題候補に整理して、人の確認付きの課題カード作成へ接続する
+      probe_value: 要約の生成単位で、根拠不足による除外、AI に渡す前の連絡先の伏せ、提示した候補数をまとめて観測する主境界
+      element_type: core
+      operation_kind: orchestration
+      consumers: [apps.web.src.components.ThreadSummary]
+      state_effects: [database-read, database-write, external-api]
+    """
     with get_conn() as conn:
         t = conn.execute("SELECT * FROM threads WHERE id = ?", (tid,)).fetchone()
         if t is None:
@@ -302,7 +324,18 @@ def me(user: dict = Depends(current_user)):
 @router.get("/me/recent-voice")
 def recent_voice(user: dict = Depends(current_user)):
     """What the user last told the AI about an article, so it can be shared in a thread
-    without retyping it (UX §5: manual transcription 0). Only the user's own words."""
+    without retyping it (UX §5: manual transcription 0). Only the user's own words.
+
+    probe-agent:
+      role: 利用者本人が直近の AI との対話で話した言葉だけを返し、スレッドの返信に 1 タップで使えるようにする API ハンドラ（他人の発言や AI の返答は返さない）
+      capability: F-05 / UX §5 対話からスレッドへの文脈の引き継ぎ（手作業の転記 0 回）
+      system_purpose: 関心を言葉にした本人が、同じ内容を打ち直さずにコミュニティの議論へ参加できるようにし、一人の声を共有された課題へつなぐ（OBJ-2）
+      probe_value: 「AI に話したことを使う」が返信に使われた割合と、本人以外の言葉が返っていないかを観測できる
+      element_type: supporting
+      operation_kind: read
+      consumers: [apps.web.src.pages.Communities.ThreadView]
+      state_effects: [database-read]
+    """
     with get_conn() as conn:
         conv = conn.execute(
             "SELECT c.id, c.news_id, n.title FROM conversations c LEFT JOIN news n ON n.id = c.news_id"

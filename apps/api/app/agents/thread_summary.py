@@ -40,6 +40,17 @@ SCHEMA = llm.obj(
 
 
 def _grounded(items: List[Dict[str, Any]], valid: set) -> List[Dict[str, Any]]:
+    """
+    probe-agent:
+      role: スレッド要約の各要約点・候補に根拠発言が付いているかを判定し、根拠のない項目を除外する補助関数
+      capability: F-05 スレッド要約と課題候補の根拠付き生成、F-16 根拠・出典トレース
+      system_purpose: コミュニティのスレッドを、根拠を追跡できる課題候補へ整理し、人が確認できる形で課題カード作成につなぐ
+      probe_value: 根拠のない要約点・候補がここで除外された件数を観測でき、F-05 の受入条件が守られているかを判断できる
+      element_type: capability
+      operation_kind: validation
+      consumers: [apps.api.app.agents.thread_summary.summarize]
+      state_effects: [none]
+    """
     out = []
     for it in items:
         nums = sorted({n for n in it.get("post_numbers", []) if n in valid})
