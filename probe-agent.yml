@@ -25,3 +25,10 @@ runtime:
   env:
     PROBE_ENABLED: "true"
     PROBE_DEFAULT_MODE: "trace"
+
+# AI エージェントは SDK が無くても動くように observe.observed("component-id") で計測している。
+# probe-agent にこのラッパーを計測点として認識させる（第 1 引数が component id）。
+instrumentation:
+  decorators:
+    - name: observed
+      component_arg: 0
