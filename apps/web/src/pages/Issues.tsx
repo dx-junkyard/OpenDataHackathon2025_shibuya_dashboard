@@ -5,6 +5,7 @@ import { api, ApiError, getUserId, type Dataset, type DashboardView, type IssueC
 import { CommunityLink } from "../components/CommunityLink";
 import { DashboardAnnotations } from "../components/DashboardAnnotations";
 import { KpiCard } from "../components/KpiCard";
+import { SurveyComposer } from "../components/SurveyComposer";
 import { AiBadge, Button, Card, ErrorNote, Loading, SampleBadge } from "../components/ui";
 
 const AVAIL = { open_data: "公開データあり", survey_needed: "アンケートが必要", unknown: "入手方法は不明" };
@@ -77,9 +78,12 @@ function KpiData({ kpi, onDone }: { kpi: Kpi; onDone: () => void }) {
         <p className="text-sm">
           ✓ データ設定済み: {kpi.dataset.title}（{kpi.points.length} 期間） {kpi.dataset.is_sample && <SampleBadge />}
         </p>
+      ) : kpi.survey && kpi.points.length > 0 ? (
+        <p className="text-sm">✓ {kpi.survey.kind === "observation" ? "現場観測" : "アンケート"}の集計: {kpi.points.length} 期間（回答 {kpi.survey.total_responses} 件）</p>
       ) : (
-        <p className="text-sm text-muted">データ未取得</p>
+        <p className="text-sm text-muted">{kpi.survey?.status === "open" ? "収集中" : "データ未取得"}</p>
       )}
+      {!kpi.dataset && <SurveyComposer kpi={kpi} onDone={onDone} />}
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-sm">
           目標値

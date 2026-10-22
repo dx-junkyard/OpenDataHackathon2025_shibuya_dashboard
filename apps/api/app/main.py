@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from . import llm, observe
 from .db import init_db
-from .routes import communities, dashboards, data, issues, news, policy
+from .routes import communities, dashboards, data, issues, news, policy, surveys
 
 
 @asynccontextmanager
@@ -18,7 +18,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="渋谷共創ダッシュボード API", version="0.1.0", lifespan=lifespan)
 
-for r in (news.router, issues.router, data.router, dashboards.router, communities.router, policy.router):
+for r in (news.router, issues.router, data.router, dashboards.router, communities.router, policy.router,
+          surveys.router):
     app.include_router(r, prefix="/api")
 
 

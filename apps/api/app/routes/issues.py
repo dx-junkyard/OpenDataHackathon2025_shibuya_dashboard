@@ -283,11 +283,14 @@ def card_out(conn, card_id: int, viewer: Optional[dict]) -> dict:
     out["focus_area_label"] = FOCUS_AREAS.get(c["focus_area"], "どの注力分野にも当てはまらない" if c["focus_area"] == NO_FOCUS_AREA else "")
     out["kpis"] = []
     for k in kpis:
-        pts = conn.execute("SELECT period, value FROM kpi_points WHERE kpi_id = ? ORDER BY period", (k["id"],)).fetchall()
+        pts = conn.execute("SELECT period, value, sample_size FROM kpi_points WHERE kpi_id = ? ORDER BY period",
+                           (k["id"],)).fetchall()
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (k["dataset_id"],)).fetchone() if k["dataset_id"] else None
+        from .surveys import survey_for_kpi  # surveys imports this module
         out["kpis"].append({**{x: k[x] for x in k.keys()},
                             "points": [dict(p) for p in pts],
-                            "dataset": ({**dict(ds), "is_sample": bool(ds["is_sample"])} if ds else None)})
+                            "dataset": ({**dict(ds), "is_sample": bool(ds["is_sample"])} if ds else None),
+                            "survey": survey_for_kpi(conn, k["id"])})
     out["dashboard"] = dict(dash) if dash else None
     out["origin_proposal"] = dict(prop) if prop else None
     decision = None

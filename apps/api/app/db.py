@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS ai_proposals (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('issue_card_draft','dataset_candidates','shaping_plan','recommendation',
-        'policy_news_draft','thread_summary')),
+        'policy_news_draft','thread_summary','survey_draft')),
     target_ref TEXT NOT NULL,
     payload TEXT NOT NULL,
     evidence TEXT NOT NULL DEFAULT '[]',
@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS kpi_points (
     period TEXT NOT NULL,
     value REAL NOT NULL,
     proposal_id INTEGER REFERENCES ai_proposals(id),
+    -- Number of responses behind the value when it comes from a survey or
+    -- field observation (F-11); NULL for dataset-derived values.
+    sample_size INTEGER,
     UNIQUE (kpi_id, period)
 );
 
@@ -220,6 +223,40 @@ CREATE TABLE IF NOT EXISTS posts (
     user_id INTEGER NOT NULL REFERENCES users(id),
     text TEXT NOT NULL,
     created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS surveys (
+    id INTEGER PRIMARY KEY,
+    kpi_id INTEGER NOT NULL REFERENCES kpis(id),
+    kind TEXT NOT NULL DEFAULT 'survey' CHECK (kind IN ('survey','observation')),
+    title TEXT NOT NULL,
+    question TEXT NOT NULL,
+    answer_type TEXT NOT NULL CHECK (answer_type IN ('rating5','number')),
+    unit TEXT NOT NULL DEFAULT '',
+    min_value REAL,
+    max_value REAL,
+    audience TEXT NOT NULL DEFAULT '',
+    min_responses INTEGER NOT NULL DEFAULT 5,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','open','closed')),
+    salt TEXT NOT NULL,
+    proposal_id INTEGER REFERENCES ai_proposals(id),
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at REAL NOT NULL,
+    opened_at REAL,
+    closed_at REAL
+);
+
+-- Individual answers are never shown or exported; only per-period aggregates
+-- with their response count reach the KPI (F-11, P-6). The respondent is a
+-- salted hash, so a stored row does not name the person.
+CREATE TABLE IF NOT EXISTS survey_responses (
+    id INTEGER PRIMARY KEY,
+    survey_id INTEGER NOT NULL REFERENCES surveys(id),
+    respondent TEXT NOT NULL,
+    period TEXT NOT NULL,
+    value REAL NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE (survey_id, respondent, period)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (

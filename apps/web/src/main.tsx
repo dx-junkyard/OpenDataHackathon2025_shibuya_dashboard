@@ -10,6 +10,7 @@ import { IssueNew } from "./pages/IssueNew";
 import { IssueDetail, IssueList } from "./pages/Issues";
 import { MePage } from "./pages/Me";
 import { NewsDetail, NewsList } from "./pages/News";
+import { SurveyAnswer } from "./pages/SurveyAnswer";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 
@@ -31,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/dash" element={<Dash />} />
             <Route path="/d/:slug" element={<PublicDashboard />} />
             <Route path="/me" element={<MePage />} />
+            <Route path="/surveys/:id" element={<SurveyAnswer />} />
           </Route>
         </Routes>
       </BrowserRouter>

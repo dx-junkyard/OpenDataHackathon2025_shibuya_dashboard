@@ -23,6 +23,8 @@ function Chart({ kpi, annotations }: { kpi: KpiSummary; annotations: { period: s
         return i < 0 ? null : <line key={a.period + a.label} x1={x(i)} x2={x(i)} y1="0" y2={H} stroke="#c7863c" strokeWidth="1.5" />;
       })}
       <path d={line} fill="none" stroke="#2f7f99" strokeWidth="2.5" strokeLinejoin="round" />
+      {/* A single period draws no line, so every value is also a visible point. */}
+      {pts.map((p, i) => <circle key={p.period} cx={x(i)} cy={y(p.value)} r="3.5" fill="#2f7f99" />)}
     </svg>
   );
 }
@@ -39,8 +41,15 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
         <p className="my-6 rounded-lg border border-dashed border-line p-3 text-center text-sm text-muted">
           データ未取得（0 ではありません）
         </p>
+      ) : kpi.data_status === "collecting" ? (
+        <p className="my-6 rounded-lg border border-dashed border-line p-3 text-center text-sm text-muted">
+          収集中: 今月の回答 {kpi.source?.current_period_responses ?? 0} 件（{kpi.source?.min_responses ?? 5} 件集まると反映。0 ではありません）
+        </p>
       ) : (
-        <Chart kpi={kpi} annotations={annotations} />
+        <>
+          <Chart kpi={kpi} annotations={annotations} />
+          {kpi.points.length === 1 && <p className="text-center text-xs text-muted">1 期間のみ（推移はまだありません）</p>}
+        </>
       )}
       <div className="flex items-center justify-between text-sm">
         <span>
@@ -49,11 +58,16 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
         </span>
         {kpi.trend && <span className="text-muted">{TREND[kpi.trend]}</span>}
       </div>
-      {kpi.source && (
+      {kpi.source && (kpi.source.kind === "survey" || kpi.source.kind === "observation" ? (
+        <p className="mt-2 text-xs text-muted">
+          出典: {kpi.source.title}（{kpi.source.publisher}・回答 {kpi.source.total_responses} 件・{kpi.source.min_responses} 件以上の月の平均。個別の回答は非公開）
+          {kpi.points.at(-1)?.sample_size != null && <span>・最新の月は {kpi.points.at(-1)!.sample_size} 件</span>}
+        </p>
+      ) : (
         <p className="mt-2 text-xs text-muted">
           出典: {kpi.source.title}（{kpi.source.publisher}・{kpi.source.license}）{kpi.source.is_sample && <SampleBadge />}
         </p>
-      )}
+      ))}
       {annotations.length > 0 && (
         <ul className="mt-1 text-xs text-[#8a5a1c]">
           {annotations.map((a) => (

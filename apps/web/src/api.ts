@@ -65,8 +65,35 @@ export type Kpi = {
   measurement: string;
   data_availability: "open_data" | "survey_needed" | "unknown";
   target_value: number | null;
-  points: { period: string; value: number }[];
+  points: { period: string; value: number; sample_size?: number | null }[];
   dataset: Dataset | null;
+  survey: Survey | null;
+};
+
+/** アンケート・現場観測 (F-11). Counts only; individual answers never reach the client. */
+export type Survey = {
+  id: number;
+  kpi_id: number;
+  kind: "survey" | "observation";
+  title: string;
+  question: string;
+  answer_type: "rating5" | "number";
+  unit: string;
+  min_value: number | null;
+  max_value: number | null;
+  audience: string;
+  min_responses: number;
+  status: "draft" | "open" | "closed";
+  proposal_id: number | null;
+  current_period: string;
+  current_period_responses: number;
+  total_responses: number;
+  periods: { period: string; responses: number; published: boolean }[];
+  answered_this_period: boolean;
+};
+
+export type SurveyDraft = Pick<Survey, "kind" | "title" | "question" | "answer_type" | "unit" | "min_value" | "max_value" | "audience"> & {
+  reason: string;
 };
 
 export type Dataset = {
@@ -145,10 +172,14 @@ export type KpiSummary = {
   target_value: number | null;
   current_value: number | null;
   current_period: string | null;
-  data_status: "available" | "not_collected";
+  data_status: "available" | "collecting" | "not_collected";
   trend: "up" | "down" | "flat" | null;
-  points: { period: string; value: number }[];
-  source: { title: string; publisher: string; license: string; source_url: string; updated_on: string; is_sample: boolean } | null;
+  points: { period: string; value: number; sample_size?: number | null }[];
+  source: {
+    title: string; publisher: string; license: string; source_url: string; updated_on: string | null; is_sample: boolean;
+    kind?: "dataset" | "survey" | "observation";
+    total_responses?: number; min_responses?: number; current_period_responses?: number; survey_status?: string;
+  } | null;
 };
 
 export type DashboardView = {

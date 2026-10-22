@@ -32,16 +32,31 @@ def kpi_summary(k: dict) -> dict:
     if len(pts) >= 2:
         diff = pts[-1]["value"] - pts[-2]["value"]
         trend = "up" if diff > 0 else "down" if diff < 0 else "flat"
+    sv = k.get("survey")
+    if pts:
+        status = "available"
+    elif sv and sv["status"] == "open":
+        status = "collecting"  # answers are coming in but no month has enough yet
+    else:
+        status = "not_collected"
+    source = None
+    if k["dataset"]:
+        source = {"title": k["dataset"]["title"], "publisher": k["dataset"]["publisher"],
+                  "license": k["dataset"]["license"], "source_url": k["dataset"]["source_url"],
+                  "updated_on": k["dataset"]["updated_on"], "is_sample": k["dataset"]["is_sample"], "kind": "dataset"}
+    elif sv:
+        # Aggregates only: the response count, never an individual answer (F-11).
+        source = {"title": sv["title"], "publisher": "現場観測（本システム）" if sv["kind"] == "observation" else "アンケート（本システム）",
+                  "license": "", "source_url": "", "updated_on": None, "is_sample": False, "kind": sv["kind"],
+                  "total_responses": sv["total_responses"], "min_responses": sv["min_responses"],
+                  "current_period_responses": sv["current_period_responses"], "survey_status": sv["status"]}
     return {
         "id": k["id"], "name": k["name"], "unit": k["unit"], "measurement": k["measurement"],
         "target_value": k["target_value"], "current_value": current,
         "current_period": pts[-1]["period"] if pts else None,
-        "data_status": "available" if pts else "not_collected",
+        "data_status": status,
         "trend": trend, "points": pts,
-        "source": ({"title": k["dataset"]["title"], "publisher": k["dataset"]["publisher"],
-                    "license": k["dataset"]["license"], "source_url": k["dataset"]["source_url"],
-                    "updated_on": k["dataset"]["updated_on"], "is_sample": k["dataset"]["is_sample"]}
-                   if k["dataset"] else None),
+        "source": source,
     }
 
 
@@ -176,15 +191,19 @@ def export_csv(slug: str):
         view = public_view(conn, d["issue_card_id"])
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["課題", "KPI", "単位", "期間", "値", "目標値", "出典", "提供者", "ライセンス", "出典URL", "データ更新日", "サンプルデータ"])
+    w.writerow(["課題", "KPI", "単位", "期間", "値", "目標値", "出典", "提供者", "ライセンス", "出典URL", "データ更新日",
+                "サンプルデータ", "回答数"])
     for k in view["kpis"]:
         s = k["source"] or {}
         if not k["points"]:
-            w.writerow([view["title"], k["name"], k["unit"], "", "未取得", k["target_value"] or "", "", "", "", "", "", ""])
+            state = "収集中" if k["data_status"] == "collecting" else "未取得"
+            w.writerow([view["title"], k["name"], k["unit"], "", state, k["target_value"] or "",
+                        s.get("title", ""), s.get("publisher", ""), "", "", "", "", ""])
         for p in k["points"]:
             w.writerow([view["title"], k["name"], k["unit"], p["period"], p["value"], k["target_value"] or "",
                         s.get("title", ""), s.get("publisher", ""), s.get("license", ""), s.get("source_url", ""),
-                        s.get("updated_on", ""), "はい（架空）" if s.get("is_sample") else "いいえ"])
+                        s.get("updated_on", "") or "", "はい（架空）" if s.get("is_sample") else "いいえ",
+                        p.get("sample_size") if p.get("sample_size") is not None else ""])
     return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="dashboard-{slug}.csv"'})
 
