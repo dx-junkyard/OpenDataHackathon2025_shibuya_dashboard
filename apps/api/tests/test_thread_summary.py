@@ -147,3 +147,20 @@ def test_conversation_origin_is_private_to_the_author(client, monkeypatch):
                        headers=as_user(PARENT)).json()
     assert card["origin"]["path"] == "/news/1"
     assert client.get(f"/api/issue-cards/{card['id']}", headers=as_user(VISITOR)).json()["origin"]["path"] == ""
+
+
+def test_issue_draft_context_lists_registered_datasets(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(issue_card, "draft", lambda ctx: seen.append(ctx) or {
+        "title": "t", "target": "", "place_time": "", "evidence": [], "focus_area": "AREA-1", "focus_reason": "",
+        "kpi_candidates": []})
+    r = client.post("/api/issue-drafts", json={"origin_kind": "news", "origin_ref": 1}, headers=as_user(PARENT))
+    assert r.status_code == 201
+    assert "[登録済みのデータセット]" in seen[0]
+    assert "授乳・おむつ替えスポット一覧（サンプル）" in seen[0] and "サンプル（架空）" in seen[0]
+
+
+def test_issue_card_agent_accepts_thread_evidence():
+    from app.agents.issue_card import SCHEMA
+    kinds = SCHEMA["properties"]["evidence"]["items"]["properties"]["kind"]["enum"]
+    assert "thread" in kinds

@@ -11,10 +11,11 @@ AREAS = "\n".join(f"{k}: {v}" for k, v in FOCUS_AREAS.items())
 
 SYSTEM = f"""あなたは渋谷区の課題カード作成を手伝うアシスタントです。与えられた文脈（ニュース記事・利用者との対話・スレッドの発言）から、課題カードの下書きを作ります。
 - タイトルは「対象・場所: 困りごと」の形で短く。
-- 根拠は文脈に実際にあるものだけ。各根拠に種類（news=記事, conversation=利用者の発言, observation=観測）と、利用者の言葉なら引用を付けます。創作しないこと。
+- 根拠は文脈に実際にあるものだけ。各根拠に種類（news=記事, conversation=AI との対話での利用者の発言, thread=コミュニティのスレッドの発言, observation=観測）と、利用者の言葉なら引用を付けます。創作しないこと。
 - 渋谷区の 7 つの注力分野のどれに寄与するかを判定し、理由を書きます。どれにも寄与しない場合は {NO_FOCUS_AREA} とし理由を書きます。
 {AREAS}
-- 追跡すべき KPI 候補を 3〜6 件提案します（利用者はこの中から最大 {MAX_KPIS} 件を選びます）。各 KPI に単位・測り方・データの入手見込み（open_data=公開データで測れそう, survey_needed=アンケートや観測が必要, unknown=不明）を付けます。
+- 追跡すべき KPI 候補を 3〜6 件提案します（利用者はこの中から最大 {MAX_KPIS} 件を選びます）。各 KPI に単位・測り方・データの入手見込みを付けます。
+  入手見込みは、文脈の [登録済みのデータセット] で測れそうなら open_data、アンケートや観測が必要なら survey_needed、判断できなければ unknown。一覧にないデータを open_data にしないこと。
 - 文脈から分からない項目は空文字にし、推測で埋めないこと。"""
 
 SCHEMA = llm.obj(
@@ -24,7 +25,7 @@ SCHEMA = llm.obj(
         "place_time": llm.STR,
         "evidence": {
             "type": "array",
-            "items": llm.obj({"kind": llm.enum(["news", "conversation", "observation"]), "text": llm.STR, "quote": llm.STR}),
+            "items": llm.obj({"kind": llm.enum(["news", "conversation", "thread", "observation"]), "text": llm.STR, "quote": llm.STR}),
         },
         "focus_area": llm.enum(list(FOCUS_AREAS) + [NO_FOCUS_AREA]),
         "focus_reason": llm.STR,

@@ -73,6 +73,18 @@ def origin_context(conn, kind: str, ref: int, user_id: int) -> tuple[str, list]:
     return f"[スレッド] {t['title']}\n{body}", [{"kind": "thread", "ref": f"thread:{ref}", "label": t["title"]}]
 
 
+def dataset_catalog(conn) -> str:
+    """Registered datasets, so the agent judges a KPI's data availability from
+    what is actually there instead of guessing (real-LLM run: every KPI came
+    back survey_needed although a matching open dataset was registered)."""
+    rows = conn.execute("SELECT title, publisher, granularity, tags, is_sample FROM datasets ORDER BY id").fetchall()
+    if not rows:
+        return "[登録済みのデータセット] なし"
+    lines = [f"- {r['title']}（提供: {r['publisher']}、粒度: {r['granularity'] or '不明'}、タグ: {r['tags'] or 'なし'}"
+             f"{'、サンプル（架空）' if r['is_sample'] else ''}）" for r in rows]
+    return "[登録済みのデータセット]\n" + "\n".join(lines)
+
+
 def candidate_context(conn, req: DraftRequest) -> tuple[str, list, list]:
     """The chosen issue candidate of a thread summary, as extra context, proposal evidence,
     and the cited posts as card evidence (taken from the thread itself, not from the AI)."""
@@ -104,6 +116,7 @@ def create_draft(req: DraftRequest, user: dict = Depends(current_user)):
         extra, extra_ev, quoted = candidate_context(conn, req)
         if extra:
             context, evidence = f"{context}\n\n{extra}", evidence + extra_ev
+        context = f"{context}\n\n{dataset_catalog(conn)}"
     try:
         draft = issue_card.draft(context)
     except llm.LLMUnavailable as exc:
