@@ -7,15 +7,18 @@ decorator is a no-op so the app runs without probe-agent.
 """
 from __future__ import annotations
 
+import contextlib
 import os
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Iterator, Optional, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 try:  # pragma: no cover - depends on the optional SDK
     from probe_agent import probe as _probe
+    from probe_agent import probe_context as _probe_context
 except ImportError:  # pragma: no cover
     _probe = None
+    _probe_context = None
 
 
 def enabled() -> bool:
@@ -33,3 +36,15 @@ def observed(component_id: str, candidate: Optional[Callable[..., Any]] = None) 
         return _probe(component_id=component_id, candidate=candidate)(fn)  # type: ignore[misc]
 
     return wrap
+
+
+@contextlib.contextmanager
+def request_context(correlation_id: str, flow_id: str) -> Iterator[None]:
+    """Group every traced call of one HTTP request: same correlation id, and
+    the request's route as the flow id, so probe-agent can show which request
+    a trace came from and the request's calls in order. No-op without the SDK."""
+    if not enabled() or _probe_context is None:
+        yield
+        return
+    with _probe_context(correlation_id=correlation_id, flow_id=flow_id):
+        yield
