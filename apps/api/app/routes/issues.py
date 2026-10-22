@@ -188,6 +188,17 @@ def redact_personal_info(text: str) -> str:
 
 
 def personal_info_warnings(*texts: str) -> List[str]:
+    """
+    probe-agent:
+      role: 公開前のテキストにメールアドレス・電話番号が含まれていないかを決定的に調べる検査関数
+      capability: F-17 公開範囲・個人情報保護
+      system_purpose: 個人を特定できる情報を公開の場に出さない（P-6）
+      probe_value: 警告が出た件数と、確認のうえ公開された件数を観測できる
+      element_type: supporting
+      operation_kind: validation
+      consumers: [apps.api.app.routes.issues.create_issue_card, apps.api.app.routes.dashboards.publish_dashboard]
+      state_effects: [none]
+    """
     found = []
     for pat, label in PII_PATTERNS:
         if any(pat.search(t or "") for t in texts):

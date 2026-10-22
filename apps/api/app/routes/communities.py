@@ -137,6 +137,17 @@ def get_community(cid: int, user: dict = Depends(current_user)):
 
 @router.post("/communities/{cid}/join")
 def join(cid: int, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: コミュニティに参加する API ハンドラ（区民でなくても参加できる）
+      capability: F-04 コミュニティ・スレッド
+      system_purpose: 同じ関心を持つ人が集まり、一人の不満を共有された課題にする（OBJ-2）
+      probe_value: 推薦や共有リンクから参加まで至った割合を観測できる
+      element_type: boundary
+      operation_kind: write
+      consumers: [apps.web.src.pages.Communities]
+      state_effects: [database-write]
+    """
     with get_conn() as conn:
         if conn.execute("SELECT 1 FROM communities WHERE id = ?", (cid,)).fetchone() is None:
             raise HTTPException(404, "コミュニティが見つかりません")
@@ -256,6 +267,17 @@ def summarize_thread(tid: int, user: dict = Depends(current_user)):
 
 @router.post("/threads/{tid}/posts", status_code=201)
 def create_post(tid: int, body: PostIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: スレッドに発言を投稿する API ハンドラ（参加者のみ）
+      capability: F-04 コミュニティ・スレッド
+      system_purpose: 当事者の経験や区職員の情報提供を議論として残し、課題の深掘りにつなげる
+      probe_value: スレッドごとの発言数と、要約・課題カードに至るまでの発言数を観測できる
+      element_type: boundary
+      operation_kind: write
+      consumers: [apps.web.src.pages.Communities.ThreadView]
+      state_effects: [database-write]
+    """
     with get_conn() as conn:
         t = conn.execute("SELECT * FROM threads WHERE id = ?", (tid,)).fetchone()
         if t is None:
@@ -306,6 +328,17 @@ def list_users():
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 自分の課題カードとその進み具合（課題 → ダッシュボード → 区の判断 → 施策）、参加中のコミュニティを返す API ハンドラ
+      capability: F-15 マイページ・進捗追跡・通知
+      system_purpose: 参加者が自分の声のその後を追えるようにする（J-6、UXP-8）
+      probe_value: マイページの閲覧と、未読の通知の件数を観測できる
+      element_type: boundary
+      operation_kind: read
+      consumers: [apps.web.src.pages.Me.MePage]
+      state_effects: [database-read]
+    """
     with get_conn() as conn:
         unread = conn.execute("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0", (user["id"],)).fetchone()[0]
         cards = conn.execute("SELECT id, title, status FROM issue_cards WHERE author_id = ? ORDER BY updated_at DESC",

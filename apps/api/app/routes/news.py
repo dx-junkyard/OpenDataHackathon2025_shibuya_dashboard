@@ -32,6 +32,17 @@ def news_out(row, conn=None) -> dict:
 
 @router.get("/news")
 def list_news(category: Optional[str] = None):
+    """
+    probe-agent:
+      role: 区のニュースをカテゴリで絞り込んで一覧にする API ハンドラ（出典・担当課・掲載日・サンプルかどうか付き）
+      capability: F-01 ニュース集約・配信
+      system_purpose: 区民がニュースを読むところから関心に気づく入口を提供する（OBJ-1）
+      probe_value: 一覧の件数・カテゴリの偏り・サンプル記事の混入を観測できる
+      element_type: boundary
+      operation_kind: read
+      consumers: [apps.web.src.pages.News.NewsList]
+      state_effects: [database-read]
+    """
     q = "SELECT * FROM news"
     args: tuple = ()
     if category:
@@ -100,6 +111,17 @@ def get_conversation(conv_id: int, user: dict = Depends(current_user)):
 
 @router.post("/conversations/{conv_id}/messages", status_code=201)
 def post_message(conv_id: int, payload: MessageCreate, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 記事についての利用者の発言を保存し、雑談 Agent の応答を付ける API ハンドラ。AI が使えないときも発言は保存し、失敗をそのまま返す
+      capability: F-02 記事文脈つき AI 対話、F-18 AI 障害時の手動フォールバック
+      system_purpose: AI が失敗しても利用者の入力を失わず、手入力の経路へ戻せるようにする（UXR-X2）
+      probe_value: AI 応答の成否（ok / unavailable / failed）と所要時間を対話の単位で観測できる
+      element_type: core
+      operation_kind: orchestration
+      consumers: [apps.web.src.pages.News.NewsDetail]
+      state_effects: [database-write, external-api]
+    """
     with get_conn() as conn:
         conv = conversation_out(conn, conv_id)
         if conv["user_id"] != user["id"]:

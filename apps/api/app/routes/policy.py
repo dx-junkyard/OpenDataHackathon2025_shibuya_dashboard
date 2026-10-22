@@ -89,6 +89,17 @@ DRAFT_FIELDS = ("title", "body", "category", "annotation_label")
 
 @router.post("/issue-cards/{card_id}/policy-news", status_code=201)
 def publish_policy_news(card_id: int, body: PolicyNewsIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 区職員が採用した課題の施策ニュースを配信し、ダッシュボードに施策開始の注釈を付けて関係者に通知する API ハンドラ
+      capability: F-14 施策ニュース化と還流
+      system_purpose: 施策がニュースとして区民に戻り、次の関心を生む（MS-5.2）
+      probe_value: AI 下書きを変えずに配信したか直したかと、配信から閲覧までを観測できる
+      element_type: core
+      operation_kind: write
+      consumers: [apps.web.src.components.PolicyNewsComposer]
+      state_effects: [database-write]
+    """
     with get_conn() as conn:
         card = _adopted_card(conn, card_id, user)
         decision = None

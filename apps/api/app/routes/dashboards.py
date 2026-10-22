@@ -133,6 +133,17 @@ class PublishIn(BaseModel):
 
 @router.post("/issue-cards/{card_id}/dashboard/publish")
 def publish_dashboard(card_id: int, body: PublishIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: KPI 追跡ダッシュボードを公開し、固定の公開 URL を発行する API ハンドラ（人の明示操作、公開前の個人情報の確認付き）
+      capability: F-10 KPI 追跡ダッシュボード生成・公開、F-17 公開範囲・個人情報保護
+      system_purpose: 当事者が自分の課題を KPI 付きで公開し、区が採用判断できる材料にする（OBJ-4）
+      probe_value: 公開の成否と、個人情報の警告で止まった件数を観測できる
+      element_type: core
+      operation_kind: write
+      consumers: [apps.web.src.pages.Issues.IssueDetail]
+      state_effects: [database-write]
+    """
     with get_conn() as conn:
         card = card_out(conn, card_id, user)
         if card["author_id"] != user["id"]:
@@ -179,6 +190,17 @@ def _published(conn, slug: str):
 
 @router.get("/public/dashboards/{slug}")
 def public_dashboard(slug: str):
+    """
+    probe-agent:
+      role: 公開ダッシュボードを誰でも閲覧できる形で返す API ハンドラ（個別の発言・回答・名前は含めない）
+      capability: F-10 KPI 追跡ダッシュボード生成・公開、F-17 公開範囲・個人情報保護
+      system_purpose: 区民と区職員が同じ KPI の推移と区の判断を見る共有の場を提供する
+      probe_value: 公開ダッシュボードの閲覧回数と、未取得・収集中の KPI の割合を観測できる
+      element_type: boundary
+      operation_kind: read
+      consumers: [apps.web.src.pages.Dash.PublicDashboard]
+      state_effects: [database-read]
+    """
     with get_conn() as conn:
         d = _published(conn, slug)
         return public_view(conn, d["issue_card_id"])
@@ -216,6 +238,17 @@ class AnnotationIn(BaseModel):
 
 @router.post("/issue-cards/{card_id}/dashboard/annotations", status_code=201)
 def add_annotation(card_id: int, body: AnnotationIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: ダッシュボードに注釈（施策開始・イベント・データ定義の変更）を追加する API ハンドラ
+      capability: F-12 注釈と施策前後比較
+      system_purpose: 施策の前後で KPI を見比べられるようにする（因果は断定しない）
+      probe_value: 注釈の種類と、注釈の後にデータが付いた KPI の割合を観測できる
+      element_type: boundary
+      operation_kind: write
+      consumers: [apps.web.src.components.DashboardAnnotations]
+      state_effects: [database-write]
+    """
     with get_conn() as conn:
         card = card_out(conn, card_id, user)
         if not card["dashboard"]:
@@ -229,6 +262,17 @@ def add_annotation(card_id: int, body: AnnotationIn, user: dict = Depends(curren
 
 @router.get("/staff/dashboards")
 def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 区職員が公開ダッシュボードを担当課・注力分野・状態で絞り込んで比べる一覧を返す API ハンドラ
+      capability: F-13 区職員ビュー（選定・採用判断）
+      system_purpose: 区民発のダッシュボードを施策検討の材料として受け取れるようにする（NEED-5）
+      probe_value: 職員ビューの利用回数と、絞り込み条件ごとの件数を観測できる
+      element_type: boundary
+      operation_kind: read
+      consumers: [apps.web.src.pages.Dash.Dash]
+      state_effects: [database-read]
+    """
     require_staff(user)
     with get_conn() as conn:
         rows = conn.execute(
@@ -255,6 +299,17 @@ class DecisionIn(BaseModel):
 
 @router.post("/dashboards/{dashboard_id}/decisions", status_code=201)
 def decide(dashboard_id: int, body: DecisionIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 区職員が検討中・採用・見送りを理由と担当課付きで記録し、課題カードの状態に反映して当事者とコミュニティに通知する API ハンドラ
+      capability: F-13 区職員ビュー（選定・採用判断）、F-15 マイページ・進捗追跡・通知
+      system_purpose: 区の採用判断をシステム内の状態として残し、つくる → 公開 → 採用の循環を閉じる（MS-5.1）
+      probe_value: 判断の種類ごとの件数と、公開から判断までの日数を観測できる
+      element_type: core
+      operation_kind: write
+      consumers: [apps.web.src.pages.Dash.Dash]
+      state_effects: [database-write]
+    """
     require_staff(user)
     with get_conn() as conn:
         d = conn.execute("SELECT * FROM dashboards WHERE id = ? AND status = 'published'", (dashboard_id,)).fetchone()
