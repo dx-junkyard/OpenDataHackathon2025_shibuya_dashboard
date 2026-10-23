@@ -222,7 +222,7 @@ export function IssueDetail() {
             <ul className="list-disc pl-5 text-sm">
               {c.evidence.map((e, i) => (
                 <li key={i}>
-                  <span className="text-xs text-muted">[{{ news: "記事", conversation: "発言", observation: "観測", thread: "スレッド", data: "データ" }[e.kind] ?? e.kind}]</span> {e.text}
+                  <span className="text-xs text-muted">[{{ news: "記事", conversation: "作成者の発言", observation: "観測", thread: "スレッドの発言", data: "データ" }[e.kind] ?? e.kind}]</span> {e.text}
                   {e.quote && <span className="block text-xs text-muted">原文: 「{e.quote}」</span>}
                 </li>
               ))}

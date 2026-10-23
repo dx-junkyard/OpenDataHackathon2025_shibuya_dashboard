@@ -22,6 +22,15 @@ const FIT: Record<string, string> = {
   personal_incident: "特定の個人に関わる事案の記事です。個人や事案そのものは課題や KPI にせず、扱うなら仕組みの困りごとに絞ってください。KPI 候補は出していません。",
 };
 
+// Where each piece of evidence came from, so a fact with a source, someone's words and an
+// added observation are told apart (UXP-4). The quote stays verbatim; only the summary is editable.
+const EVIDENCE_KIND = {
+  news: "記事（出典のある事実）",
+  conversation: "あなたの発言（AI との対話）",
+  thread: "スレッドの発言",
+  observation: "観測・自分で追加",
+} as const;
+
 const AVAIL = { open_data: "公開データあり", survey_needed: "アンケートが必要", unknown: "入手方法は不明" };
 const EMPTY: Draft = { title: "", target: "", place_time: "", evidence: [], focus_area: "", focus_reason: "", kpi_candidates: [] };
 
@@ -151,20 +160,33 @@ export function IssueNew() {
           <legend className="text-sm font-semibold text-muted">根拠（ニュース・観測など）</legend>
           {form.evidence.length === 0 && <p className="text-xs text-muted">まだありません</p>}
           {form.evidence.map((ev, i) => (
-            <div key={i} className="mt-1 flex gap-2">
-              <textarea
-                aria-label={`根拠 ${i + 1}`}
-                className="input min-h-16 flex-1"
-                value={ev.text + (ev.quote ? `\n「${ev.quote}」` : "")}
-                onChange={(e) => {
-                  const evidence = [...form.evidence];
-                  evidence[i] = { ...ev, text: e.target.value, quote: "" };
-                  setForm({ ...form, evidence });
-                }}
-              />
-              <button type="button" className="text-xs text-muted underline" onClick={() => setForm({ ...form, evidence: form.evidence.filter((_, j) => j !== i) })}>
-                削除
-              </button>
+            <div key={i} className="mt-2 rounded-lg border border-line p-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold">根拠 {i + 1}: {EVIDENCE_KIND[ev.kind] ?? ev.kind}</span>
+                <button type="button" className="text-xs text-muted underline" aria-label={`根拠 ${i + 1} を削除`}
+                  onClick={() => setForm({ ...form, evidence: form.evidence.filter((_, j) => j !== i) })}>
+                  削除
+                </button>
+              </div>
+              {ev.quote && (
+                <blockquote className="mt-1 border-l-2 border-line pl-2 text-sm">
+                  <span className="text-xs text-muted">原文（そのまま残します）</span>
+                  <br />「{ev.quote}」
+                </blockquote>
+              )}
+              <label className="mt-1 block text-xs text-muted">
+                {ev.quote ? "要約（編集できます）" : "内容"}
+                <textarea
+                  aria-label={`根拠 ${i + 1} の${ev.quote ? "要約" : "内容"}`}
+                  className="input mt-1 min-h-16 w-full"
+                  value={ev.text}
+                  onChange={(e) => {
+                    const evidence = [...form.evidence];
+                    evidence[i] = { ...ev, text: e.target.value };
+                    setForm({ ...form, evidence });
+                  }}
+                />
+              </label>
             </div>
           ))}
           <Button type="button" variant="ghost" onClick={() => setForm({ ...form, evidence: [...form.evidence, { kind: "observation", text: "", quote: "" }] })}>

@@ -291,8 +291,7 @@ def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None,
                 continue
             if state and (v["latest_decision"] or {}).get("state", "none") != state:
                 continue
-            card = conn.execute("SELECT community_id, origin_kind, origin_ref FROM issue_cards WHERE id = ?",
-                                (r["issue_card_id"],)).fetchone()
+            card = conn.execute("SELECT * FROM issue_cards WHERE id = ?", (r["issue_card_id"],)).fetchone()
             community = conn.execute("SELECT area FROM communities WHERE id = ?", (card["community_id"],)).fetchone() \
                 if card["community_id"] else None
             departments = _related_departments(conn, card, v)
@@ -304,12 +303,37 @@ def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None,
             members = conn.execute("SELECT COUNT(*) FROM community_members WHERE community_id = ?",
                                    (card["community_id"],)).fetchone()[0] if card["community_id"] else 0
             items.append({**v, "community_id": card["community_id"], "community_members": members,
-                          "departments": sorted(departments), "community_area": community["area"] if community else ""})
+                          "departments": sorted(departments), "community_area": community["area"] if community else "",
+                          "background": _background(conn, card, user)})
         all_departments = sorted({d for (d,) in conn.execute(
             "SELECT DISTINCT department FROM news WHERE department != '' UNION SELECT DISTINCT department FROM users"
             " WHERE role = 'staff' AND department != ''")})
     return {"items": items, "focus_areas": [{"key": k, "label": v} for k, v in FOCUS_AREAS.items()],
             "departments": all_departments}
+
+
+def _background(conn, card, user: dict) -> dict:
+    """What staff need to explain a dashboard (ux.md §5): the evidence, where it started,
+    how much discussion is behind it, and how much of the card was the AI's draft.
+    Verbatim quotes only for a public card; otherwise the summary line alone."""
+    from .issues import _origin_out
+    public = card["visibility"] == "public"
+    evidence = [{"kind": e["kind"], "text": e["text"], "quote": e.get("quote", "") if public else ""}
+                for e in json.loads(card["evidence"])]
+    thread = None
+    if card["origin_kind"] == "thread" and (card["origin_ref"] or "").isdigit():
+        tid = int(card["origin_ref"])
+        n, people = conn.execute("SELECT COUNT(*), COUNT(DISTINCT user_id) FROM posts WHERE thread_id = ?", (tid,)).fetchone()
+        s = conn.execute("SELECT payload FROM ai_proposals WHERE kind = 'thread_summary' AND target_ref = ? AND status != 'rejected'"
+                         " ORDER BY id DESC LIMIT 1", (f"thread:{tid}",)).fetchone()
+        summary = json.loads(s["payload"]) if s else None
+        thread = {"posts": n, "participants": people,
+                  "summary": summary["summary"] if summary else "",
+                  "summary_stale": bool(summary) and summary.get("post_count", n) < n}
+    ai = conn.execute("SELECT status FROM ai_proposals WHERE id = ?", (card["proposal_id"],)).fetchone() \
+        if card["proposal_id"] else None
+    return {"evidence": evidence, "origin": _origin_out(conn, card, user), "thread": thread,
+            "ai_draft": ai["status"] if ai else "none"}
 
 
 def _related_departments(conn, card, view: dict) -> set:

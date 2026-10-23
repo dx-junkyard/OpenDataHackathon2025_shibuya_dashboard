@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, type DashboardView, type IssueCard, type User } from "../api";
+import { api, type DashboardView, type IssueCard, type StaffBackground, type User } from "../api";
 import { DashboardAnnotations } from "../components/DashboardAnnotations";
 import { KpiCard } from "../components/KpiCard";
 import { PolicyNewsComposer } from "../components/PolicyNewsComposer";
@@ -105,6 +105,7 @@ function StaffItem({ d, onDone }: { d: DashboardView; onDone: () => void }) {
           </li>
         ))}
       </ul>
+      {d.background && <Background b={d.background} />}
       {d.latest_decision && (
         <p className="mt-1 text-xs">現在: <strong>{STATE_LABEL[d.latest_decision.state]}</strong>（{d.latest_decision.reason}）</p>
       )}
@@ -120,15 +121,52 @@ function StaffItem({ d, onDone }: { d: DashboardView; onDone: () => void }) {
           <legend className="sr-only">判断</legend>
           {Object.entries(STATE_LABEL).map(([k, v]) => (
             <label key={k} className="flex items-center gap-1">
-              <input type="radio" name={`state-${d.issue_card_id}`} checked={state === k} onChange={() => setState(k)} /> {v}
+              <input type="radio" name={`state-${d.issue_card_id}`} value={k} checked={state === k} onChange={() => setState(k)} /> {v}
             </label>
           ))}
         </fieldset>
-        <textarea required className="input" placeholder="理由（当事者に通知されます）" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <textarea required className="input" aria-label="判断の理由（当事者に通知されます）" placeholder="理由（当事者に通知されます）" value={reason} onChange={(e) => setReason(e.target.value)} />
         <Button disabled={!reason.trim() || decide.isPending}>判断を記録する</Button>
         <ErrorNote error={decide.error} />
       </form>
     </div>
+  );
+}
+
+const EVIDENCE_LABEL: Record<string, string> = {
+  news: "記事（事実）", conversation: "作成者の発言", thread: "スレッドの発言", observation: "観測", data: "データ",
+};
+const AI_DRAFT_LABEL: Record<string, string> = {
+  none: "人が手入力で作成", proposed: "AI の下書き（未採用）", adopted: "AI の下書きをそのまま採用",
+  adopted_edited: "AI の下書きを人が編集して採用", rejected: "AI の下書きは却下し手入力",
+};
+
+/** What a staff member needs to explain the dashboard to others: evidence, origin, discussion (ux.md §5). */
+function Background({ b }: { b: StaffBackground }) {
+  return (
+    <details className="mt-2 rounded-lg bg-brand-soft p-2 text-xs">
+      <summary className="cursor-pointer font-semibold">根拠と経緯</summary>
+      <ul className="mt-1 space-y-1">
+        {b.evidence.map((e, i) => (
+          <li key={i}>
+            <span className="text-muted">[{EVIDENCE_LABEL[e.kind] ?? e.kind}]</span> {e.quote ? `「${e.quote}」` : e.text}
+            {e.quote && <span className="text-muted">（{e.text}）</span>}
+          </li>
+        ))}
+      </ul>
+      {b.origin && (
+        <p className="mt-1">
+          起点: {b.origin.path ? <Link className="underline" to={b.origin.path}>{b.origin.label}</Link> : b.origin.label}
+        </p>
+      )}
+      {b.thread && (
+        <p className="mt-1">
+          議論: 発言 {b.thread.posts} 件・{b.thread.participants} 人
+          {b.thread.summary && <>。AI の要約: {b.thread.summary}{b.thread.summary_stale && "（要約のあとに発言が増えています）"}</>}
+        </p>
+      )}
+      <p className="mt-1 text-muted">課題カードの作り方: {AI_DRAFT_LABEL[b.ai_draft] ?? b.ai_draft}</p>
+    </details>
   );
 }
 

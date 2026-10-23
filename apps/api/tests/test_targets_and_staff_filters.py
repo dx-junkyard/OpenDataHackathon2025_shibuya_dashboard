@@ -75,3 +75,18 @@ def test_staff_list_filters_by_department_and_area(client):
     assert [i["title"] for i in by_area] == ["恵比寿の授乳場所"]
     assert len(client.get(f"/api/staff/dashboards?department={dept}", headers=as_user(STAFF)).json()["items"]) == 2
     assert client.get("/api/staff/dashboards?department=存在しない課", headers=as_user(STAFF)).json()["items"] == []
+
+
+def test_staff_list_carries_the_background_staff_need_to_explain_it(client):
+    from app.db import get_conn
+    card = client.post("/api/issue-cards", json={
+        "title": "授乳場所", "community_id": 1,
+        "evidence": [{"kind": "conversation", "text": "駅周辺で授乳場所が足りない", "quote": "駅で 30 分探しました"}],
+        "kpis": [{"name": "設置数", "unit": "か所"}]}, headers=as_user(PARENT)).json()
+    client.post(f"/api/issue-cards/{card['id']}/dashboard/publish", json={}, headers=as_user(PARENT))
+    [item] = client.get("/api/staff/dashboards", headers=as_user(STAFF)).json()["items"]
+    assert item["background"]["ai_draft"] == "none" and item["background"]["evidence"][0]["quote"] == "駅で 30 分探しました"
+    with get_conn() as conn:  # the card was later narrowed to its community: quotes are no longer shown
+        conn.execute("UPDATE issue_cards SET visibility = 'community' WHERE id = ?", (card["id"],))
+    [item] = client.get("/api/staff/dashboards", headers=as_user(STAFF)).json()["items"]
+    assert item["background"]["evidence"][0] == {"kind": "conversation", "text": "駅周辺で授乳場所が足りない", "quote": ""}

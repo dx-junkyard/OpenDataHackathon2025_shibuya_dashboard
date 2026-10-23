@@ -206,6 +206,14 @@ export type DashboardView = {
   policy_news: PolicyNewsLink[];
   community_id?: number | null;
   community_members?: number;
+  background?: StaffBackground;
+};
+
+export type StaffBackground = {
+  evidence: { kind: string; text: string; quote: string }[];
+  origin: { kind: string; label: string; path: string } | null;
+  thread: { posts: number; participants: number; summary: string; summary_stale: boolean } | null;
+  ai_draft: "none" | "proposed" | "adopted" | "adopted_edited" | "rejected";
 };
 
 export type User = { id: number; display_name: string; role: string; attribute: string; department: string };
