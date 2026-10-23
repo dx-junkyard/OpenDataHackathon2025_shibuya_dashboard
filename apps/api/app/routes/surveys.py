@@ -39,6 +39,20 @@ def _period(ts: float) -> str:
     return time.strftime("%Y-%m", time.localtime(ts))
 
 
+def current_period() -> str:
+    return _period(time.time())
+
+
+def _publishable(survey: dict, period: str, n: int) -> bool:
+    return n >= survey["min_responses"] and (period < current_period() or survey["status"] == "closed")
+
+
+def _summary_value(survey: dict, values: list) -> float:
+    if survey["answer_type"] == "number":
+        return round(statistics.median(values), 2)
+    return round(statistics.fmean(values), 2)
+
+
 def _respondent(survey: dict, user_id: int) -> str:
     return hashlib.sha256(f"{survey['salt']}:{user_id}".encode()).hexdigest()
 
@@ -65,8 +79,8 @@ def aggregate(conn, survey: dict) -> list:
     conn.execute("DELETE FROM kpi_points WHERE kpi_id = ?", (survey["kpi_id"],))
     published = []
     for period, values in sorted(by_period.items()):
-        if len(values) >= survey["min_responses"]:
-            value = round(statistics.fmean(values), 2)
+        if _publishable(survey, period, len(values)):
+            value = _summary_value(survey, values)
             conn.execute("INSERT INTO kpi_points (kpi_id, period, value, sample_size) VALUES (?,?,?,?)",
                          (survey["kpi_id"], period, value, len(values)))
             published.append({"period": period, "value": value, "sample_size": len(values)})
@@ -77,7 +91,7 @@ def aggregate(conn, survey: dict) -> list:
 
 def survey_out(conn, s, user: Optional[dict] = None) -> dict:
     s = dict(s)
-    now_period = _period(time.time())
+    now_period = current_period()
     counts = {r["period"]: r["n"] for r in conn.execute(
         "SELECT period, COUNT(*) AS n FROM survey_responses WHERE survey_id = ? GROUP BY period", (s["id"],))}
     answered = False
@@ -91,14 +105,22 @@ def survey_out(conn, s, user: Optional[dict] = None) -> dict:
         "current_period": now_period,
         "current_period_responses": counts.get(now_period, 0),
         "total_responses": sum(counts.values()),
-        "periods": [{"period": p, "responses": n, "published": n >= s["min_responses"]} for p, n in sorted(counts.items())],
+        "periods": [{"period": p, "responses": n, "published": _publishable(s, p, n)} for p, n in sorted(counts.items())],
+        "aggregation": "median" if s["answer_type"] == "number" else "mean",
         "answered_this_period": answered,
     }
 
 
 def survey_for_kpi(conn, kpi_id: int) -> Optional[dict]:
     s = conn.execute("SELECT * FROM surveys WHERE kpi_id = ? ORDER BY id DESC LIMIT 1", (kpi_id,)).fetchone()
-    return survey_out(conn, s) if s else None
+    if s is None:
+        return None
+    out = survey_out(conn, s)
+    # A month that has ended since the last answer is published on the next read.
+    shown = conn.execute("SELECT COUNT(*) FROM kpi_points WHERE kpi_id = ?", (kpi_id,)).fetchone()[0]
+    if sum(p["published"] for p in out["periods"]) != shown:
+        aggregate(conn, dict(s))
+    return out
 
 
 @router.post("/kpis/{kpi_id}/survey-drafts", status_code=201)
@@ -196,6 +218,8 @@ def _set_status(survey_id: int, status: str, user: dict):
             raise HTTPException(409, f"いまの状態（{s['status']}）からは変更できません")
         col = "opened_at" if status == "open" else "closed_at"
         conn.execute(f"UPDATE surveys SET status = ?, {col} = ? WHERE id = ?", (status, time.time(), survey_id))
+        if status == "closed":
+            aggregate(conn, _load(conn, survey_id))  # the open month is final now
         if status == "open" and card.get("community"):
             for m in conn.execute("SELECT user_id FROM community_members WHERE community_id = ? AND user_id != ?",
                                   (card["community"]["id"], user["id"])):
@@ -232,6 +256,6 @@ def answer(survey_id: int, body: AnswerIn, user: dict = Depends(current_user)):
         conn.execute(
             """INSERT INTO survey_responses (survey_id, respondent, period, value, created_at) VALUES (?,?,?,?,?)
                ON CONFLICT (survey_id, respondent, period) DO UPDATE SET value = excluded.value, created_at = excluded.created_at""",
-            (survey_id, _respondent(s, user["id"]), _period(now), body.value, now))
+            (survey_id, _respondent(s, user["id"]), current_period(), body.value, now))
         aggregate(conn, s)
         return survey_out(conn, conn.execute("SELECT * FROM surveys WHERE id = ?", (survey_id,)).fetchone(), user)

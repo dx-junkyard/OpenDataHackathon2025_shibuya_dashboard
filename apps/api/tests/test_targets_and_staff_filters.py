@@ -1,5 +1,7 @@
 """KPI の目標到達の通知 (UXR-23) と区職員ビューの担当課・地域での絞り込み (UXR-18)."""
 
+from app.routes import surveys
+
 from .conftest import as_user
 
 PARENT, VISITOR, STAFF, MANAGER, BUSINESS = 1, 2, 3, 4, 5
@@ -17,42 +19,46 @@ def _card_with_survey_kpi(client, title="授乳場所が見つかるまでの時
     return card, kpi, s
 
 
-def _answer_all(client, survey_id, value):
+def _month(client, monkeypatch, survey_id, month, value):
+    """Everyone answers `value` in `month`; the month then ends (published on the next read)."""
+    monkeypatch.setattr(surveys, "current_period", lambda: month)
     for uid in (PARENT, VISITOR, STAFF, MANAGER, BUSINESS):
         client.post(f"/api/surveys/{survey_id}/responses", json={"value": value}, headers=as_user(uid))
+    monkeypatch.setattr(surveys, "current_period", lambda: month + "~")
+    client.get(f"/api/surveys/{survey_id}", headers=as_user(PARENT))
 
 
 def _target_notes(client, uid):
     return [n for n in client.get("/api/me/notifications", headers=as_user(uid)).json()["items"] if "目標" in n["text"]]
 
 
-def test_reaching_a_decrease_target_notifies_once_without_claiming_a_cause(client):
+def test_reaching_a_decrease_target_notifies_once_without_claiming_a_cause(client, monkeypatch):
     card, kpi, s = _card_with_survey_kpi(client)
     r = client.put(f"/api/kpis/{kpi['id']}/target", json={"target_value": 15, "target_direction": "decrease"},
                    headers=as_user(PARENT))
     assert r.status_code == 200 and r.json()["target_direction"] == "decrease"
-    _answer_all(client, s["id"], 30)  # mean 30 min: above the target, not reached
+    _month(client, monkeypatch, s["id"], "2026-07", 30)  # 30 min: above the target, not reached
     assert _target_notes(client, PARENT) == []
-    _answer_all(client, s["id"], 10)  # answers replaced: mean 10 min, reached
+    _month(client, monkeypatch, s["id"], "2026-08", 10)  # 10 min: reached
     notes = _target_notes(client, PARENT)
     assert len(notes) == 1 and "15分 以下" in notes[0]["text"] and "効果かどうかは確認されていません" in notes[0]["text"]
     assert notes[0]["link"] == f"/issues/{card['id']}"
     assert len(_target_notes(client, MANAGER)) == 1  # community members are told too
-    _answer_all(client, s["id"], 12)  # still reached: no second notification
+    _month(client, monkeypatch, s["id"], "2026-09", 12)  # still reached: no second notification
     assert len(_target_notes(client, PARENT)) == 1
     k = client.get(f"/api/issue-cards/{card['id']}/dashboard", headers=as_user(PARENT)).json()["kpis"][0]
     assert k["target_reached_period"] and k["target_direction"] == "decrease"
 
 
-def test_falling_back_clears_the_mark_so_reaching_again_notifies_again(client):
+def test_falling_back_clears_the_mark_so_reaching_again_notifies_again(client, monkeypatch):
     card, kpi, s = _card_with_survey_kpi(client)
     client.put(f"/api/kpis/{kpi['id']}/target", json={"target_value": 20}, headers=as_user(PARENT))  # increase
-    _answer_all(client, s["id"], 25)
+    _month(client, monkeypatch, s["id"], "2026-07", 25)
     assert len(_target_notes(client, PARENT)) == 1
-    _answer_all(client, s["id"], 5)
+    _month(client, monkeypatch, s["id"], "2026-08", 5)
     k = client.get(f"/api/issue-cards/{card['id']}", headers=as_user(PARENT)).json()["kpis"][0]
     assert k["target_reached_period"] is None
-    _answer_all(client, s["id"], 40)
+    _month(client, monkeypatch, s["id"], "2026-09", 40)
     assert len(_target_notes(client, PARENT)) == 2
 
 

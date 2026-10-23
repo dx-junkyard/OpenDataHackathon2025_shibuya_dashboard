@@ -49,7 +49,8 @@ def kpi_summary(k: dict) -> dict:
         source = {"title": sv["title"], "publisher": "現場観測（本システム）" if sv["kind"] == "observation" else "アンケート（本システム）",
                   "license": "", "source_url": "", "updated_on": None, "is_sample": False, "kind": sv["kind"],
                   "total_responses": sv["total_responses"], "min_responses": sv["min_responses"],
-                  "current_period_responses": sv["current_period_responses"], "survey_status": sv["status"]}
+                  "current_period_responses": sv["current_period_responses"], "survey_status": sv["status"],
+                  "aggregation": sv["aggregation"]}
     return {
         "id": k["id"], "name": k["name"], "unit": k["unit"], "measurement": k["measurement"],
         "target_value": k["target_value"], "current_value": current,

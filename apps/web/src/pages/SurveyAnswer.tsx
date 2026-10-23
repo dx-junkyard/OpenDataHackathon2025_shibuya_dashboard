@@ -51,7 +51,10 @@ export function SurveyAnswer() {
         </form>
       )}
       <div className="mt-4 rounded-lg border border-line p-3 text-xs text-muted">
-        <p>回答は月ごとに集計し、{v.min_responses} 件以上集まった月だけ平均値をダッシュボードに出します。個別の回答と回答者は誰にも表示されません。</p>
+        <p>
+          回答は月ごとに集計し、{v.min_responses} 件以上集まった月だけ、月末（または締め切り後）に{v.aggregation === "median" ? "中央値" : "平均値"}をダッシュボードに出します。
+          途中の値は出さないので、前後の差から誰かの回答が分かることはありません。個別の回答と回答者は誰にも表示されません。
+        </p>
         <SurveyProgress survey={v} />
       </div>
     </Card>

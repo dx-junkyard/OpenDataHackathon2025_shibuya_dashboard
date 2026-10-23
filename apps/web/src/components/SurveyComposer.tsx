@@ -16,8 +16,8 @@ export function SurveyProgress({ survey }: { survey: Survey }) {
     <p className="text-xs" role="status">
       {survey.current_period} の回答 {survey.current_period_responses} 件
       {survey.status === "open" && (left > 0
-        ? `（あと ${left} 件集まると KPI に反映。それまでは「収集中」と表示し、0 とは見せません）`
-        : "（KPI に反映済み）")}
+        ? `（あと ${left} 件で、月末または締め切り後に KPI に反映。それまでは「収集中」と表示し、0 とは見せません）`
+        : "（件数は足りています。月末または締め切り後に KPI に反映します）")}
     </p>
   );
 }

@@ -179,6 +179,8 @@ class IssueCardCreate(BaseModel):
 PII_PATTERNS = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "メールアドレス"),
     (re.compile(r"0\d{1,4}-?\d{1,4}-?\d{3,4}"), "電話番号"),
+    # A street address down to the block and house ("3丁目12-5", "12番5号", "12番地"); a town name alone is fine.
+    (re.compile(r"\d+丁目\s*\d+(?:[-－‐ー]\d+)+|\d+丁目\d+番(?:地)?(?:\d+号?)?|\d+番\d+号|\d+番地"), "番地までの住所"),
 ]
 
 
@@ -295,15 +297,18 @@ def card_out(conn, card_id: int, viewer: Optional[dict]) -> dict:
     out["status_label"] = ISSUE_STATUS_LABELS[c["status"]]
     out["focus_area_label"] = FOCUS_AREAS.get(c["focus_area"], "どの注力分野にも当てはまらない" if c["focus_area"] == NO_FOCUS_AREA else "")
     out["kpis"] = []
+    from .surveys import survey_for_kpi  # surveys imports this module
     for k in kpis:
+        survey = survey_for_kpi(conn, k["id"])  # first: it may publish a month that just ended
+        if survey is not None:
+            k = conn.execute("SELECT * FROM kpis WHERE id = ?", (k["id"],)).fetchone()
         pts = conn.execute("SELECT period, value, sample_size FROM kpi_points WHERE kpi_id = ? ORDER BY period",
                            (k["id"],)).fetchall()
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (k["dataset_id"],)).fetchone() if k["dataset_id"] else None
-        from .surveys import survey_for_kpi  # surveys imports this module
         out["kpis"].append({**{x: k[x] for x in k.keys()},
                             "points": [dict(p) for p in pts],
                             "dataset": ({**dict(ds), "is_sample": bool(ds["is_sample"])} if ds else None),
-                            "survey": survey_for_kpi(conn, k["id"])})
+                            "survey": survey})
     out["dashboard"] = dict(dash) if dash else None
     out["origin_proposal"] = dict(prop) if prop else None
     decision = None

@@ -1,5 +1,6 @@
 """アンケート・現場観測の収集 (F-11) with the AI replaced by fixed outputs."""
 from app.agents import survey as survey_agent
+from app.routes import surveys
 
 from .conftest import as_user
 
@@ -90,6 +91,10 @@ def test_aggregate_and_count_only_never_individual_answers(client, monkeypatch):
     after = client.post(f"/api/surveys/{s['id']}/responses", json={"value": 5}, headers=as_user(PARENT)).json()
     assert after["current_period_responses"] == 5 and after["answered_this_period"] is True
     slug = pub["dashboard"]["public_slug"]
+    # The month is still open: no value yet, so a before/after comparison reveals nobody's answer.
+    assert client.get(f"/api/public/dashboards/{slug}").json()["kpis"][0]["data_status"] == "collecting"
+    month = surveys.current_period()
+    monkeypatch.setattr(surveys, "current_period", lambda: "9999-12")  # the month has ended
     view = client.get(f"/api/public/dashboards/{slug}").json()
     [k] = view["kpis"]
     assert k["data_status"] == "available"
@@ -100,7 +105,7 @@ def test_aggregate_and_count_only_never_individual_answers(client, monkeypatch):
     assert "回答数" in csv_text and ",5\r\n" in csv_text
     # No endpoint lists individual answers; the survey view has counts only.
     sv = client.get(f"/api/surveys/{s['id']}", headers=as_user(VISITOR)).json()
-    assert "responses" not in sv and sv["periods"][0]["responses"] == 5
+    assert "responses" not in sv and sv["periods"][0] == {"period": month, "responses": 5, "published": True}
     for bad in (0, 6, 2.5):
         assert client.post(f"/api/surveys/{s['id']}/responses", json={"value": bad}, headers=as_user(VISITOR)).status_code == 422
 
@@ -114,3 +119,18 @@ def test_closed_survey_stops_answers_and_keeps_points(client, monkeypatch):
     assert client.post(f"/api/surveys/{s['id']}/responses", json={"value": 4}, headers=as_user(PARENT)).status_code == 409
     kpi_after = client.get(f"/api/issue-cards/{card['id']}", headers=as_user(PARENT)).json()["kpis"][0]
     assert kpi_after["points"][0]["value"] == 4 and kpi_after["survey"]["status"] == "closed"
+
+
+def test_one_extreme_number_does_not_move_the_kpi(client):
+    card = _card(client)
+    kpi = card["kpis"][0]
+    s = client.post(f"/api/kpis/{kpi['id']}/surveys", json={"kind": "observation", "title": "待ち時間", "question": "何分待ちましたか",
+                                                         "answer_type": "number", "unit": "分", "min_value": 0, "max_value": 180},
+                    headers=as_user(PARENT)).json()
+    client.post(f"/api/surveys/{s['id']}/open", headers=as_user(PARENT))
+    for uid, v in [(PARENT, 10), (VISITOR, 12), (STAFF, 15), (MANAGER, 11), (BUSINESS, 180)]:
+        client.post(f"/api/surveys/{s['id']}/responses", json={"value": v}, headers=as_user(uid))
+    closed = client.post(f"/api/surveys/{s['id']}/close", headers=as_user(PARENT)).json()
+    assert closed["aggregation"] == "median"
+    pts = client.get(f"/api/issue-cards/{card['id']}", headers=as_user(PARENT)).json()["kpis"][0]["points"]
+    assert [p["value"] for p in pts] == [12]  # the mean would be 45.6

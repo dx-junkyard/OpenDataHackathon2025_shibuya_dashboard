@@ -45,7 +45,7 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
         </p>
       ) : kpi.data_status === "collecting" ? (
         <p className="my-6 rounded-lg border border-dashed border-line p-3 text-center text-sm text-muted">
-          収集中: 今月の回答 {kpi.source?.current_period_responses ?? 0} 件（{kpi.source?.min_responses ?? 5} 件集まると反映。0 ではありません）
+          収集中: 今月の回答 {kpi.source?.current_period_responses ?? 0} 件（{kpi.source?.min_responses ?? 5} 件以上集まった月を、月末または締め切り後に反映。0 ではありません）
         </p>
       ) : (
         <>
@@ -65,7 +65,7 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
       )}
       {kpi.source && (kpi.source.kind === "survey" || kpi.source.kind === "observation" ? (
         <p className="mt-2 text-xs text-muted">
-          出典: {kpi.source.title}（{kpi.source.publisher}・回答 {kpi.source.total_responses} 件・{kpi.source.min_responses} 件以上の月の平均。個別の回答は非公開）
+          出典: {kpi.source.title}（{kpi.source.publisher}・回答 {kpi.source.total_responses} 件・{kpi.source.min_responses} 件以上の月の{kpi.source.aggregation === "median" ? "中央値" : "平均"}。個別の回答は非公開）
           {kpi.points.at(-1)?.sample_size != null && <span>・最新の月は {kpi.points.at(-1)!.sample_size} 件</span>}
         </p>
       ) : (

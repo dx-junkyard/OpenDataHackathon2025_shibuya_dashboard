@@ -90,6 +90,7 @@ export type Survey = {
   current_period: string;
   current_period_responses: number;
   total_responses: number;
+  aggregation: "median" | "mean";
   periods: { period: string; responses: number; published: boolean }[];
   answered_this_period: boolean;
 };
@@ -183,6 +184,7 @@ export type KpiSummary = {
     title: string; publisher: string; license: string; source_url: string; updated_on: string | null; is_sample: boolean;
     kind?: "dataset" | "survey" | "observation";
     total_responses?: number; min_responses?: number; current_period_responses?: number; survey_status?: string;
+    aggregation?: "median" | "mean";
   } | null;
 };
 
