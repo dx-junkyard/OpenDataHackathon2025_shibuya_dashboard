@@ -15,8 +15,13 @@ SYSTEM = f"""あなたは渋谷区の課題カード作成を手伝うアシス�
 - 渋谷区の 7 つの注力分野のどれに寄与するかを判定し、理由を書きます。どれにも寄与しない場合は {NO_FOCUS_AREA} とし理由を書きます。
 {AREAS}
 - 追跡すべき KPI 候補を 3〜6 件提案します（利用者はこの中から最大 {MAX_KPIS} 件を選びます）。各 KPI に単位・測り方・データの入手見込みを付けます。
-  入手見込みは、文脈の [登録済みのデータセット] で測れそうなら open_data、アンケートや観測が必要なら survey_needed、判断できなければ unknown。一覧にないデータを open_data にしないこと。
-- 文脈から分からない項目は空文字にし、推測で埋めないこと。"""
+  入手見込みは、文脈の [登録済みのデータセット] で測れそうなら open_data、アンケートや観測が必要なら survey_needed、判断できなければ unknown。一覧にないデータを open_data にしないこと。施設などの一覧は行を数えれば件数を測れます。
+- 文脈から分からない項目は空文字にし、推測で埋めないこと。
+- 元の文脈が住民の困りごとを含むかを origin_fit で示します。
+  resident_issue: 住民・利用者の困りごとや要望が書かれている。
+  announcement: 区のお知らせ（意見募集・計画の公表・事業者募集・通知の発送など）で、困りごとは書かれていない。この場合、タイトルを困りごとのように言い換えず、fit_note に「当事者の声を集めてから課題にする」ための問いかけを 1 文で書きます。
+  personal_incident: 逮捕・不祥事・事故など特定の個人に関わる事案。個人や事案そのものを課題や KPI にしないこと（kpi_candidates は空にします）。fit_note に、扱うなら仕組みの困りごとに絞る旨を書きます。
+  resident_issue のとき fit_note は空文字。"""
 
 SCHEMA = llm.obj(
     {
@@ -27,6 +32,8 @@ SCHEMA = llm.obj(
             "type": "array",
             "items": llm.obj({"kind": llm.enum(["news", "conversation", "thread", "observation"]), "text": llm.STR, "quote": llm.STR}),
         },
+        "origin_fit": llm.enum(["resident_issue", "announcement", "personal_incident"]),
+        "fit_note": llm.STR,
         "focus_area": llm.enum(list(FOCUS_AREAS) + [NO_FOCUS_AREA]),
         "focus_reason": llm.STR,
         "kpi_candidates": {
@@ -57,4 +64,7 @@ def draft(context: str) -> Dict[str, Any]:
       consumers: [apps.api.app.routes.issues.create_draft, apps.api.app.routes.issues.create_issue_card]
       state_effects: [external-api]
     """
-    return llm.complete_json(SYSTEM, context, SCHEMA, "issue_card_draft")
+    out = llm.complete_json(SYSTEM, context, SCHEMA, "issue_card_draft")
+    if out.get("origin_fit") == "personal_incident":
+        out["kpi_candidates"] = []  # never track a person or an incident as a KPI (P-6)
+    return out

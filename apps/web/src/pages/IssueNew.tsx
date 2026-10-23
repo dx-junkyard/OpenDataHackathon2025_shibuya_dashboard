@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, type IssueCard, type Proposal } from "../api";
 import { AiBadge, Button, Card, Chip, ErrorNote, Loading } from "../components/ui";
 
@@ -13,6 +13,13 @@ type Draft = {
   focus_area: string;
   focus_reason: string;
   kpi_candidates: KpiCand[];
+  origin_fit?: "resident_issue" | "announcement" | "personal_incident";
+  fit_note?: string;
+};
+
+const FIT: Record<string, string> = {
+  announcement: "この記事は区のお知らせで、住民の困りごとは書かれていません。課題にする前に、コミュニティで当事者の声を集めることをおすすめします。",
+  personal_incident: "特定の個人に関わる事案の記事です。個人や事案そのものは課題や KPI にせず、扱うなら仕組みの困りごとに絞ってください。KPI 候補は出していません。",
 };
 
 const AVAIL = { open_data: "公開データあり", survey_needed: "アンケートが必要", unknown: "入手方法は不明" };
@@ -114,6 +121,15 @@ export function IssueNew() {
         <p className="mb-3 text-xs text-muted">
           AI の下書きです。すべて編集できます。保存するまで課題カードにはなりません。根拠: {proposal.evidence.map((e) => e.label).join("、")}
         </p>
+      )}
+      {proposal?.payload.origin_fit && FIT[proposal.payload.origin_fit] && (
+        <div role="note" className="mb-3 rounded-lg bg-warn-soft p-3 text-sm text-warn">
+          <p>{FIT[proposal.payload.origin_fit]}</p>
+          {proposal.payload.fit_note && <p className="mt-1">AI より: {proposal.payload.fit_note}</p>}
+          {proposal.payload.origin_fit === "announcement" && (
+            <Link className="mt-1 inline-block underline" to="/communities">コミュニティで声を集める</Link>
+          )}
+        </div>
       )}
       <form
         className="space-y-3"

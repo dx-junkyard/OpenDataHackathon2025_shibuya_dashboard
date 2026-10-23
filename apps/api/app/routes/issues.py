@@ -77,11 +77,13 @@ def dataset_catalog(conn) -> str:
     """Registered datasets, so the agent judges a KPI's data availability from
     what is actually there instead of guessing (real-LLM run: every KPI came
     back survey_needed although a matching open dataset was registered)."""
-    rows = conn.execute("SELECT title, publisher, granularity, tags, is_sample FROM datasets ORDER BY id").fetchall()
+    rows = conn.execute("SELECT title, publisher, description, granularity, tags, is_sample FROM datasets ORDER BY id").fetchall()
     if not rows:
         return "[登録済みのデータセット] なし"
+    # The description says what the rows are (e.g. one row per facility, so a count is measurable);
+    # without it a facility list's KPI "number of spots" came back unknown on the real LLM.
     lines = [f"- {r['title']}（提供: {r['publisher']}、粒度: {r['granularity'] or '不明'}、タグ: {r['tags'] or 'なし'}"
-             f"{'、サンプル（架空）' if r['is_sample'] else ''}）" for r in rows]
+             f"{'、サンプル（架空）' if r['is_sample'] else ''}）: {r['description'][:120]}" for r in rows]
     return "[登録済みのデータセット]\n" + "\n".join(lines)
 
 
