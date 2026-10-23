@@ -14,7 +14,7 @@ function Chart({ kpi, annotations }: { kpi: KpiSummary; annotations: { period: s
   const y = (v: number) => H - 6 - ((v - min) / (max - min || 1)) * (H - 12);
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-24 w-full" role="img" aria-label={`${kpi.name}の推移（${pts[0]?.period}〜${pts.at(-1)?.period}）`}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-24 w-full" role="img" aria-label={`${kpi.name}の推移（${pts[0]?.period}〜${pts.at(-1)?.period}、${pts.length} 期間）。最新 ${pts.at(-1)?.value}${kpi.unit}${kpi.target_value != null ? `、目標 ${kpi.target_value}${kpi.unit}${kpi.target_direction === "decrease" ? " 以下" : " 以上"}` : ""}`}>
       {kpi.target_value != null && (
         <line x1="0" x2={W} y1={y(kpi.target_value)} y2={y(kpi.target_value)} stroke="#8a95a3" strokeDasharray="4 4" />
       )}
@@ -70,9 +70,12 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
         </p>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          出典: {kpi.source.title}（{kpi.source.publisher}・{kpi.source.license}）{kpi.source.is_sample && <SampleBadge />}
+          出典: {kpi.source.title}（{kpi.source.publisher}・{kpi.source.license}{kpi.data_as_of ? `・${kpi.data_as_of} 時点の版` : ""}）{kpi.source.is_sample && <SampleBadge />}
         </p>
       ))}
+      {kpi.refresh_error && (
+        <p role="status" className="mt-1 rounded bg-warn-soft p-2 text-xs text-warn">⚠ {kpi.refresh_error}。表示は前回の値です。</p>
+      )}
       {annotations.length > 0 && (
         <ul className="mt-1 text-xs text-[#8a5a1c]">
           {annotations.map((a) => (

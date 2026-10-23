@@ -118,10 +118,12 @@ def _read(file_path: str, file_format: str) -> list:
         raise HTTPException(422, f"データを読み込めませんでした: {exc}") from exc
 
 
-def _snapshots(ds) -> list:
-    with get_conn() as conn:
-        return [dict(r) for r in conn.execute(
-            "SELECT as_of, file_path, file_format FROM dataset_snapshots WHERE dataset_id = ? ORDER BY as_of", (ds["id"],))]
+def _snapshots(ds, conn=None) -> list:
+    if conn is None:
+        with get_conn() as conn:
+            return _snapshots(ds, conn)
+    return [dict(r) for r in conn.execute(
+        "SELECT as_of, file_path, file_format FROM dataset_snapshots WHERE dataset_id = ? ORDER BY as_of", (ds["id"],))]
 
 
 def _plan_rows(ds, snaps: list, plan: dict) -> list:
@@ -210,7 +212,9 @@ def adopt_shaping(proposal_id: int, body: AdoptPlan, user: dict = Depends(curren
         for p in points:
             conn.execute("INSERT INTO kpi_points (kpi_id, period, value, proposal_id) VALUES (?,?,?,?)",
                          (kpi_id, p["period"], p["value"], proposal_id))
-        conn.execute("UPDATE kpis SET dataset_id = ? WHERE id = ?", (payload["dataset_id"], kpi_id))
+        snaps = _snapshots(ds, conn)
+        conn.execute("UPDATE kpis SET dataset_id = ?, shaping_plan = ?, data_as_of = ?, refresh_error = '' WHERE id = ?",
+                     (payload["dataset_id"], json.dumps(plan, ensure_ascii=False), snaps[-1]["as_of"] if snaps else ds["updated_on"], kpi_id))
         conn.execute("UPDATE issue_cards SET status = CASE WHEN status = 'published' THEN 'verifying' ELSE status END,"
                      " updated_at = ? WHERE id = (SELECT issue_card_id FROM kpis WHERE id = ?)", (time.time(), kpi_id))
         proposals.decide(conn, proposal_id, "adopted_edited" if edited else "adopted", user["id"], result_ref=f"kpi:{kpi_id}")

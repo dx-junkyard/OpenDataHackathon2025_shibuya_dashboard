@@ -55,6 +55,7 @@ def kpi_summary(k: dict) -> dict:
         "id": k["id"], "name": k["name"], "unit": k["unit"], "measurement": k["measurement"],
         "target_value": k["target_value"], "current_value": current,
         "target_direction": k.get("target_direction", "increase"),
+        "data_as_of": k.get("data_as_of"), "refresh_error": k.get("refresh_error") or "",
         # Reached = the latest value is at/over (or at/under) the target; never a claim about cause.
         "target_reached_period": k.get("target_reached_period"),
         "current_period": pts[-1]["period"] if pts else None,

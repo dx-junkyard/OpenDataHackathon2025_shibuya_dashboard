@@ -172,6 +172,8 @@ def store(conn: sqlite3.Connection, datasets_dir: str, *, source_key: str, meta:
         " VALUES (?,?,?,?,?,?,?) ON CONFLICT (dataset_id, as_of) DO UPDATE SET file_format=excluded.file_format,"
         " file_path=excluded.file_path, file_url=excluded.file_url, sha256=excluded.sha256, fetched_at=excluded.fetched_at",
         (dataset_id, as_of, fmt, name, file_url, sha, time.time()))
+    from ..kpi_refresh import refresh_dataset
+    refresh_dataset(conn, dataset_id)  # KPIs built on this dataset follow the new version
     return "ok"
 
 

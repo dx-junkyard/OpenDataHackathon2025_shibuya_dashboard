@@ -57,18 +57,39 @@ export function IssueNew() {
     queryFn: () => api<{ items: { id: number; name: string; joined: boolean }[] }>("/communities?q="),
   });
   const requested = useRef(false);
+  // The person may stop waiting for the AI and type; a draft that arrives later is offered, not applied (UXR-X2).
+  const skipped = useRef(false);
+  const [late, setLate] = useState<Proposal<Draft> | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   const draft = useMutation({
     mutationFn: () => api<Proposal<Draft>>("/issue-drafts", { method: "POST", json: { origin_kind: kind, origin_ref: Number(ref), summary_proposal_id: summaryId ?? null, candidate_index: candidateIndex ?? null } }),
     onSuccess: (p) => {
-      setProposal(p);
-      setForm(p.payload);
-      setPicked([]);
+      if (skipped.current) {
+        setLate(p);
+        return;
+      }
+      applyDraft(p);
     },
     onError: (e) => {
+      if (skipped.current) return;
       if (e instanceof ApiError && e.code === "ai_unavailable") setManual(e.message);
     },
   });
+  const applyDraft = (p: Proposal<Draft>) => {
+    setProposal(p);
+    setForm(p.payload);
+    setPicked([]);
+    setManual(null);
+    setLate(null);
+  };
+  const waiting = draft.isPending && !skipped.current;
+  useEffect(() => {
+    if (!waiting) return;
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [waiting]);
   useEffect(() => {
     if (!requested.current && (kind === "news" || kind === "conversation" || kind === "thread")) {
       requested.current = true;
@@ -112,7 +133,22 @@ export function IssueNew() {
   const [newKpi, setNewKpi] = useState("");
   const piiError = save.error instanceof ApiError && save.error.code === "personal_info";
 
-  if (draft.isPending) return <Card><Loading /><p className="text-sm text-muted">AI が文脈から課題カードの下書きを作っています…</p></Card>;
+  if (waiting)
+    return (
+      <Card>
+        <Loading />
+        <p className="text-sm text-muted" role="status">
+          AI が文脈から課題カードの下書きを作っています…（{elapsed} 秒。ふだんは 10〜20 秒です）
+        </p>
+        <Button className="mt-2" variant="secondary" onClick={() => {
+          skipped.current = true;
+          setManual("AI の下書きを待たずに手入力で始めました。");
+          setElapsed(0);
+        }}>
+          待たずに手入力で始める
+        </Button>
+      </Card>
+    );
 
   return (
     <Card>
@@ -120,6 +156,12 @@ export function IssueNew() {
         <h2 className="text-lg font-bold">課題カード</h2>
         {proposal && <AiBadge status={proposal.status} />}
       </div>
+      {late && (
+        <div role="status" className="mb-3 rounded-lg bg-brand-soft p-3 text-sm">
+          AI の下書きが届きました。
+          <Button className="ml-2" variant="secondary" onClick={() => applyDraft(late)}>下書きを使う（入力中の内容は置き換わります）</Button>
+        </div>
+      )}
       {manual !== null && (
         <p className="mb-3 rounded-lg bg-warn-soft p-3 text-sm text-warn">
           {manual || "手入力で課題カードを作成します。"}

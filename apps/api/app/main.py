@@ -1,6 +1,7 @@
 """渋谷共創ダッシュボード API."""
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 import uuid
@@ -10,13 +11,17 @@ from starlette.routing import compile_path
 
 from . import llm, observe
 from .db import init_db
+from .ingest import schedule
 from .routes import communities, dashboards, data, issues, news, policy, surveys
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    task = asyncio.create_task(schedule.loop()) if schedule.interval_hours() > 0 else None
     yield
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="渋谷共創ダッシュボード API", version="0.1.0", lifespan=lifespan)

@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS kpis (
     target_reached_period TEXT,
     target_reached_at REAL,
     dataset_id INTEGER REFERENCES datasets(id),
+    -- The adopted shaping plan (JSON), re-run when the dataset gets a new snapshot.
+    shaping_plan TEXT,
+    -- The newest snapshot the points reflect, and why the last re-run failed ('' if it did not).
+    data_as_of TEXT,
+    refresh_error TEXT NOT NULL DEFAULT '',
     position INTEGER NOT NULL
 );
 

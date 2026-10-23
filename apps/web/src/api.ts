@@ -177,6 +177,8 @@ export type KpiSummary = {
   current_period: string | null;
   target_direction?: "increase" | "decrease";
   target_reached_period?: string | null;
+  data_as_of?: string | null;
+  refresh_error?: string;
   data_status: "available" | "collecting" | "not_collected";
   trend: "up" | "down" | "flat" | null;
   points: { period: string; value: number; sample_size?: number | null }[];

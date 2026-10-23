@@ -205,3 +205,34 @@ def test_as_of_date_from_page(html_text, expected):
     from app.ingest import html
 
     assert jpdate.find_iso_date(html.page_text(html_text), after="更新日") == expected
+
+
+def test_a_new_dataset_version_updates_the_kpi_with_the_edited_plan(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("APP_DATASETS_DIR", str(tmp_path / "datasets"))
+    _ingest(monkeypatch, tmp_path, _web())
+    _, card = _card_from_conversation(client, monkeypatch)
+    kpi = card["kpis"][0]
+    flat = next(d for d in client.get("/api/datasets").json()["items"] if d["title"] == "赤ちゃん・ふらっと一覧")
+    plan = {"feasible": True, "table_index": 0, "header_row": 0, "unpivot_columns": [], "date_column": "取得時点",
+            "value_column": "", "filter_column": "", "filter_value": "", "aggregation": "count_rows",
+            "period": "month", "cumulative": False, "steps": []}
+    monkeypatch.setattr(shaping, "propose_plan", lambda k, tables, note: plan)
+    prop = client.post(f"/api/kpis/{kpi['id']}/shaping-plans", json={"dataset_id": flat["id"]}, headers=as_user(PARENT)).json()
+    edited = {**plan, "filter_column": "地域", "filter_value": "渋谷区"}  # the person's fix, not the AI's plan
+    client.post(f"/api/shaping-plans/{prop['id']}/adopt", json={"plan": edited}, headers=as_user(PARENT))
+
+    # The next scheduled ingest finds a new version: the KPI follows it with the edited plan.
+    _ingest(monkeypatch, tmp_path, _web(**{SRC.landing_page: LANDING.replace("2026年10月7日", "2026年11月4日"),
+                                           CSV_URL: FLAT_CSV + "200,渋谷区,新しい施設,渋谷区\n".encode("cp932")}))
+    k = client.get(f"/api/issue-cards/{card['id']}/dashboard", headers=as_user(PARENT)).json()["kpis"][0]
+    assert [(p["period"], p["value"]) for p in k["points"]] == [("2026-10", 2.0), ("2026-11", 3.0)]
+    assert k["data_as_of"] == "2026-11-04" and k["refresh_error"] == ""
+    notes = [n["text"] for n in client.get("/api/me/notifications", headers=as_user(PARENT)).json()["items"]]
+    assert any("2026-11-04 時点の版に更新" in t for t in notes)
+
+    # A later version renamed the filter column: the old points stay and the card says so.
+    renamed = "登録番号,区市町村,施設名,設置者\n4,渋谷区,東京ウィメンズプラザ,東京都\n".encode("cp932")
+    _ingest(monkeypatch, tmp_path, _web(**{SRC.landing_page: LANDING.replace("2026年10月7日", "2026年12月2日"), CSV_URL: renamed}))
+    k = client.get(f"/api/issue-cards/{card['id']}/dashboard", headers=as_user(PARENT)).json()["kpis"][0]
+    assert [p["value"] for p in k["points"]] == [2.0, 3.0] and k["data_as_of"] == "2026-11-04"
+    assert "2026-12-02 時点のデータを反映できませんでした" in k["refresh_error"]
