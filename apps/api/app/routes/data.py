@@ -5,12 +5,12 @@ import json
 import os
 import time
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import llm, proposals
+from .. import kpi_targets, llm, proposals
 from ..agents import opendata, shaping
 from ..db import get_conn
 from ..deps import current_user
@@ -214,17 +214,21 @@ def adopt_shaping(proposal_id: int, body: AdoptPlan, user: dict = Depends(curren
         conn.execute("UPDATE issue_cards SET status = CASE WHEN status = 'published' THEN 'verifying' ELSE status END,"
                      " updated_at = ? WHERE id = (SELECT issue_card_id FROM kpis WHERE id = ?)", (time.time(), kpi_id))
         proposals.decide(conn, proposal_id, "adopted_edited" if edited else "adopted", user["id"], result_ref=f"kpi:{kpi_id}")
+        kpi_targets.check(conn, kpi_id)
         return {"kpi_id": kpi_id, "points": points}
 
 
 class TargetIn(BaseModel):
     target_value: Optional[float] = None
+    target_direction: Literal["increase", "decrease"] = "increase"
 
 
 @router.put("/kpis/{kpi_id}/target")
 def set_target(kpi_id: int, body: TargetIn, user: dict = Depends(current_user)):
     with get_conn() as conn:
         _kpi_for_author(conn, kpi_id, user)
-        conn.execute("UPDATE kpis SET target_value = ? WHERE id = ?", (body.target_value, kpi_id))
+        conn.execute("UPDATE kpis SET target_value = ?, target_direction = ? WHERE id = ?",
+                     (body.target_value, body.target_direction, kpi_id))
+        kpi_targets.check(conn, kpi_id)
         return dict(conn.execute("SELECT * FROM kpis WHERE id = ?", (kpi_id,)).fetchone())
 

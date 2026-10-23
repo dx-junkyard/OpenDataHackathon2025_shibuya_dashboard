@@ -35,22 +35,43 @@ export function Dash() {
 function StaffView({ department }: { department: string }) {
   const qc = useQueryClient();
   const [area, setArea] = useState("");
+  const [dept, setDept] = useState("");
+  const [place, setPlace] = useState("");
+  const qs = new URLSearchParams();
+  if (area) qs.set("focus_area", area);
+  if (dept) qs.set("department", dept);
+  if (place.trim()) qs.set("area", place.trim());
   const list = useQuery({
-    queryKey: ["staff-dashboards", area],
+    queryKey: ["staff-dashboards", area, dept, place.trim()],
     queryFn: () =>
-      api<{ items: DashboardView[]; focus_areas: { key: string; label: string }[] }>(`/staff/dashboards${area ? `?focus_area=${area}` : ""}`),
+      api<{ items: DashboardView[]; focus_areas: { key: string; label: string }[]; departments: string[] }>(
+        `/staff/dashboards${qs.toString() ? `?${qs}` : ""}`),
   });
   return (
     <Card className="border-brand">
       <h2 className="font-bold">職員ビュー（{department}）</h2>
       <p className="mb-2 text-xs text-muted">区民が公開したダッシュボードを比較し、検討状況を記録します。記録は当事者とコミュニティに通知されます。</p>
-      <label className="text-sm">
-        注力分野
-        <select className="input mt-1" value={area} onChange={(e) => setArea(e.target.value)}>
-          <option value="">すべて</option>
-          {list.data?.focus_areas.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-        </select>
-      </label>
+      <div className="grid gap-2">
+        <label className="text-sm">
+          注力分野
+          <select className="input mt-1" value={area} onChange={(e) => setArea(e.target.value)}>
+            <option value="">すべて</option>
+            {list.data?.focus_areas.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+          </select>
+        </label>
+        <label className="text-sm">
+          担当課（判断した課・起点の記事の担当課）
+          <select className="input mt-1" value={dept} onChange={(e) => setDept(e.target.value)}>
+            <option value="">すべて</option>
+            {department && <option value={department}>自分の課（{department}）</option>}
+            {list.data?.departments.filter((d) => d !== department).map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label className="text-sm">
+          地域
+          <input className="input mt-1" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="例: 恵比寿、代々木上原" />
+        </label>
+      </div>
       <ErrorNote error={list.error} />
       <div className="mt-3 space-y-3">
         {list.data?.items.length === 0 && <p className="text-sm text-muted">該当するダッシュボードはありません。</p>}

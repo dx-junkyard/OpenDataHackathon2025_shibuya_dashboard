@@ -35,7 +35,9 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
     <article className="rounded-2xl border border-line bg-white p-4 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="font-bold">{kpi.name}</h3>
-        <span className="text-sm text-muted">目標 {kpi.target_value == null ? "未設定" : fmt(kpi.target_value)}</span>
+        <span className="text-sm text-muted">
+          目標 {kpi.target_value == null ? "未設定" : `${fmt(kpi.target_value)}${kpi.target_direction === "decrease" ? " 以下" : " 以上"}`}
+        </span>
       </div>
       {kpi.data_status === "not_collected" ? (
         <p className="my-6 rounded-lg border border-dashed border-line p-3 text-center text-sm text-muted">
@@ -58,6 +60,9 @@ export function KpiCard({ kpi, annotations = [] }: { kpi: KpiSummary; annotation
         </span>
         {kpi.trend && <span className="text-muted">{TREND[kpi.trend]}</span>}
       </div>
+      {kpi.target_reached_period && (
+        <p className="mt-1 text-xs font-semibold text-brand-strong">◎ 目標に到達（{kpi.target_reached_period}）・施策の効果かどうかは未確認</p>
+      )}
       {kpi.source && (kpi.source.kind === "survey" || kpi.source.kind === "observation" ? (
         <p className="mt-2 text-xs text-muted">
           出典: {kpi.source.title}（{kpi.source.publisher}・回答 {kpi.source.total_responses} 件・{kpi.source.min_responses} 件以上の月の平均。個別の回答は非公開）

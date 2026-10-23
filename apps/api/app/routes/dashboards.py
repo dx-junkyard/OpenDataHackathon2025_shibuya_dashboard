@@ -53,6 +53,9 @@ def kpi_summary(k: dict) -> dict:
     return {
         "id": k["id"], "name": k["name"], "unit": k["unit"], "measurement": k["measurement"],
         "target_value": k["target_value"], "current_value": current,
+        "target_direction": k.get("target_direction", "increase"),
+        # Reached = the latest value is at/over (or at/under) the target; never a claim about cause.
+        "target_reached_period": k.get("target_reached_period"),
         "current_period": pts[-1]["period"] if pts else None,
         "data_status": status,
         "trend": trend, "points": pts,
@@ -261,7 +264,9 @@ def add_annotation(card_id: int, body: AnnotationIn, user: dict = Depends(curren
 
 
 @router.get("/staff/dashboards")
-def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None, user: dict = Depends(current_user)):
+def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None,
+               department: Optional[str] = None, area: Optional[str] = None,
+               user: dict = Depends(current_user)):
     """
     probe-agent:
       role: 区職員が公開ダッシュボードを担当課・注力分野・状態で絞り込んで比べる一覧を返す API ハンドラ
@@ -285,11 +290,44 @@ def staff_list(focus_area: Optional[str] = None, state: Optional[str] = None, us
                 continue
             if state and (v["latest_decision"] or {}).get("state", "none") != state:
                 continue
-            card = conn.execute("SELECT community_id FROM issue_cards WHERE id = ?", (r["issue_card_id"],)).fetchone()
+            card = conn.execute("SELECT community_id, origin_kind, origin_ref FROM issue_cards WHERE id = ?",
+                                (r["issue_card_id"],)).fetchone()
+            community = conn.execute("SELECT area FROM communities WHERE id = ?", (card["community_id"],)).fetchone() \
+                if card["community_id"] else None
+            departments = _related_departments(conn, card, v)
+            if department and department not in departments:
+                continue
+            places = [v["place_time"] or "", community["area"] if community else ""]
+            if area and not any(area in p for p in places):
+                continue
             members = conn.execute("SELECT COUNT(*) FROM community_members WHERE community_id = ?",
                                    (card["community_id"],)).fetchone()[0] if card["community_id"] else 0
-            items.append({**v, "community_id": card["community_id"], "community_members": members})
-    return {"items": items, "focus_areas": [{"key": k, "label": v} for k, v in FOCUS_AREAS.items()]}
+            items.append({**v, "community_id": card["community_id"], "community_members": members,
+                          "departments": sorted(departments), "community_area": community["area"] if community else ""})
+        all_departments = sorted({d for (d,) in conn.execute(
+            "SELECT DISTINCT department FROM news WHERE department != '' UNION SELECT DISTINCT department FROM users"
+            " WHERE role = 'staff' AND department != ''")})
+    return {"items": items, "focus_areas": [{"key": k, "label": v} for k, v in FOCUS_AREAS.items()],
+            "departments": all_departments}
+
+
+def _related_departments(conn, card, view: dict) -> set:
+    """Departments a dashboard concerns: the one that recorded a decision on it, and
+    the one responsible for the news article it started from (UXR-18)."""
+    out = set()
+    if view["latest_decision"] and view["latest_decision"].get("department"):
+        out.add(view["latest_decision"]["department"])
+    news_id = None
+    if card["origin_kind"] == "news" and (card["origin_ref"] or "").isdigit():
+        news_id = int(card["origin_ref"])
+    elif card["origin_kind"] == "conversation" and (card["origin_ref"] or "").isdigit():
+        row = conn.execute("SELECT news_id FROM conversations WHERE id = ?", (int(card["origin_ref"]),)).fetchone()
+        news_id = row["news_id"] if row else None
+    if news_id:
+        row = conn.execute("SELECT department FROM news WHERE id = ?", (news_id,)).fetchone()
+        if row and row["department"]:
+            out.add(row["department"])
+    return out
 
 
 class DecisionIn(BaseModel):

@@ -23,7 +23,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import llm, proposals
+from .. import kpi_targets, llm, proposals
 from ..agents import survey as survey_agent
 from ..db import get_conn
 from ..deps import current_user
@@ -71,6 +71,7 @@ def aggregate(conn, survey: dict) -> list:
                          (survey["kpi_id"], period, value, len(values)))
             published.append({"period": period, "value": value, "sample_size": len(values)})
     conn.execute("UPDATE kpis SET dataset_id = NULL WHERE id = ?", (survey["kpi_id"],))
+    kpi_targets.check(conn, survey["kpi_id"])
     return published
 
 

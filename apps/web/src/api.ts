@@ -65,6 +65,8 @@ export type Kpi = {
   measurement: string;
   data_availability: "open_data" | "survey_needed" | "unknown";
   target_value: number | null;
+  target_direction?: "increase" | "decrease";
+  target_reached_period?: string | null;
   points: { period: string; value: number; sample_size?: number | null }[];
   dataset: Dataset | null;
   survey: Survey | null;
@@ -172,6 +174,8 @@ export type KpiSummary = {
   target_value: number | null;
   current_value: number | null;
   current_period: string | null;
+  target_direction?: "increase" | "decrease";
+  target_reached_period?: string | null;
   data_status: "available" | "collecting" | "not_collected";
   trend: "up" | "down" | "flat" | null;
   points: { period: string; value: number; sample_size?: number | null }[];

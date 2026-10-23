@@ -48,6 +48,7 @@ function KpiData({ kpi, onDone }: { kpi: Kpi; onDone: () => void }) {
   const [search, setSearch] = useState<Proposal<Candidates> | null>(null);
   const [plan, setPlan] = useState<Proposal<Plan> | null>(null);
   const [target, setTarget] = useState(kpi.target_value?.toString() ?? "");
+  const [direction, setDirection] = useState<"increase" | "decrease">(kpi.target_direction ?? "increase");
   const find = useMutation({ mutationFn: () => api<Proposal<Candidates>>(`/kpis/${kpi.id}/dataset-search`, { method: "POST" }), onSuccess: setSearch });
   const shape = useMutation({
     mutationFn: (datasetId: number) =>
@@ -64,7 +65,7 @@ function KpiData({ kpi, onDone }: { kpi: Kpi; onDone: () => void }) {
   });
   const reject = useMutation({ mutationFn: (id: number) => api(`/ai-proposals/${id}/reject`, { method: "POST" }), onSuccess: () => setPlan(null) });
   const saveTarget = useMutation({
-    mutationFn: () => api(`/kpis/${kpi.id}/target`, { method: "PUT", json: { target_value: target === "" ? null : Number(target) } }),
+    mutationFn: () => api(`/kpis/${kpi.id}/target`, { method: "PUT", json: { target_value: target === "" ? null : Number(target), target_direction: direction } }),
     onSuccess: onDone,
   });
   return (
@@ -90,6 +91,13 @@ function KpiData({ kpi, onDone }: { kpi: Kpi; onDone: () => void }) {
           <input className="input mt-1 w-28" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} />
         </label>
         <span className="pb-3 text-sm">{kpi.unit}</span>
+        <label className="text-sm">
+          向き
+          <select className="input mt-1" value={direction} onChange={(e) => setDirection(e.target.value as "increase" | "decrease")}>
+            <option value="increase">増やしたい（以上で到達）</option>
+            <option value="decrease">減らしたい（以下で到達）</option>
+          </select>
+        </label>
         <Button variant="secondary" onClick={() => saveTarget.mutate()} disabled={saveTarget.isPending}>目標を保存</Button>
         <Button onClick={() => find.mutate()} disabled={find.isPending}>{find.isPending ? "探しています…" : kpi.dataset ? "データを探し直す" : "データを探す"}</Button>
       </div>

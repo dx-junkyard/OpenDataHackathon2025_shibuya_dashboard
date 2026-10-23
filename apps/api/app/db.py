@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS kpis (
     data_availability TEXT NOT NULL DEFAULT 'unknown'
         CHECK (data_availability IN ('open_data','survey_needed','unknown')),
     target_value REAL,
+    -- Whether reaching the target means the value goes up or down (e.g. waiting time).
+    target_direction TEXT NOT NULL DEFAULT 'increase' CHECK (target_direction IN ('increase','decrease')),
+    -- Set when the latest value first reaches the target; cleared if it falls back (UXR-23).
+    target_reached_period TEXT,
+    target_reached_at REAL,
     dataset_id INTEGER REFERENCES datasets(id),
     position INTEGER NOT NULL
 );
