@@ -12,7 +12,8 @@ from .test_flow import PARENT, _card_from_conversation
 
 CKAN = opendata.TOKYO_CKAN
 HUB = opendata.SHIBUYA_HUB
-SRC = opendata.CKAN_SOURCES[0]
+SRC = next(c for c in opendata.CKAN_SOURCES if c.package_id == "t000054d0000000347")  # 赤ちゃん・ふらっと（landing page fallback）
+PARK_SRC = next(c for c in opendata.CKAN_SOURCES if c.package_id == "t131130d2025000003")  # 代表シナリオ: 公園一覧
 HUB_SRC = opendata.HUB_SOURCES[0]
 CSV_URL = "https://www.fukushi.metro.tokyo.lg.jp/documents/d/fukushi/flat_r81007.csv"
 
@@ -28,6 +29,16 @@ LANDING = f"""<html><main><h1>赤ちゃん・ふらっと事業</h1><p>更新日
 <a href="/documents/d/fukushi/flat_r81007.csv">{SRC.landing_link_text}</a></main></html>"""
 FLAT_CSV = ("登録番号,地域,施設名,設置者\n4,渋谷区,東京ウィメンズプラザ,東京都生活文化局\n156,渋谷区,西武渋谷店,株式会社そごう・西武\n"
             "88,千代田区,いずみこどもプラザ,千代田区\n").encode("cp932")
+PARK_CSV_URL = "https://www.opendata.metro.tokyo.lg.jp/shibuya/131130_shibuyaku_toshitoritukouen.csv"
+PARK_PACKAGE = {"result": {
+    "name": PARK_SRC.package_id, "title": "都市公園・都立公園一覧", "license_id": "CC-BY",
+    "license_title": "クリエイティブ・コモンズ 表示（CC BY）", "metadata_modified": "2026-03-30T14:14:52",
+    "organization": {"title": "渋谷区"},
+    "resources": [{"format": "CSV", "url": PARK_CSV_URL}],
+}}
+PARK_CSV = ("﻿全国地方公共団体コード,ID,地方公共団体名,名称,所在地_連結表記,緯度,経度,面積(㎡),備考\n"
+            "131130,131130_001,東京都渋谷区,恵比寿東公園,渋谷区恵比寿1-2-16,35.6480749,139.7117732,,\n"
+            "131130,131130_004,東京都渋谷区,豊沢児童遊園地,渋谷区恵比寿2-17-19,35.6468907,139.7193016,,\n").encode("utf-8")
 HUB_ITEM = {"properties": {"title": "子育て関連施設の利用状況", "license": "CC-BY-4.0", "modified": 1758527437000,
                            "description": "<p>利用者数です。</p><p>・2025年4月1日時点の情報です。</p>"}}
 HUB_CSV = "﻿年度,施設名,月,利用者数\n2023,本町子育て支援センター,4,237\n".encode("utf-8")
@@ -53,7 +64,9 @@ def _web(**overrides):
     routes = {
         f"{CKAN}/api/3/action/package_search": {"result": {"count": 0, "results": []}},
         f"{HUB}/api/search/v1/collections/dataset/items?": {"numberMatched": 0, "features": []},
-        f"{CKAN}/api/3/action/package_show": PACKAGE,
+        f"{CKAN}/api/3/action/package_show?id={SRC.package_id}": PACKAGE,
+        f"{CKAN}/api/3/action/package_show?id={PARK_SRC.package_id}": PARK_PACKAGE,
+        PARK_CSV_URL: PARK_CSV,
         PACKAGE["result"]["resources"][1]["url"]: 404,
         SRC.landing_page: LANDING,
         CSV_URL: FLAT_CSV,
@@ -76,7 +89,7 @@ def _runs(kind="dataset"):
 
 
 def test_dataset_is_registered_with_source_metadata(client, monkeypatch, tmp_path):
-    assert _ingest(monkeypatch, tmp_path, _web()) == {SRC.package_id: "ok", HUB_SRC.item_id: "ok"}
+    assert _ingest(monkeypatch, tmp_path, _web()) == {PARK_SRC.package_id: "ok", SRC.package_id: "ok", HUB_SRC.item_id: "ok"}
     items = {d["title"]: d for d in client.get("/api/datasets").json()["items"]}
     flat = items["赤ちゃん・ふらっと一覧"]
     assert flat["is_sample"] is False and flat["publisher"] == "東京都福祉局" and flat["license"] == "CC-BY-4.0"
@@ -84,11 +97,14 @@ def test_dataset_is_registered_with_source_metadata(client, monkeypatch, tmp_pat
     # The as-of date comes from the bureau's page, not from the stale CKAN resource date.
     assert flat["updated_on"] == "2026-10-07"
     assert "404" in flat["description"] and SRC.landing_page in flat["description"]
+    park = items["都市公園・都立公園一覧"]  # the representative scenario's real data
+    assert park["publisher"] == "渋谷区" and park["license"] == "CC-BY" and park["updated_on"] == "2026-03-30"
+    assert park["file_url"] == PARK_CSV_URL and "面積の列は空欄" in park["description"]
     hub = items["子育て関連施設の利用状況"]
     assert hub["publisher"] == "渋谷区" and hub["license"] == "CC-BY-4.0" and hub["updated_on"] == "2025-04-01"
     # The search scope is recorded, including what was not found.
     statuses = {r["source"]: r["status"] for r in _runs()}
-    assert statuses["検索: 東京都オープンデータカタログ（渋谷区）「授乳」"] == "not_found"
+    assert statuses["検索: 東京都オープンデータカタログ（渋谷区）「プレーパーク」"] == "not_found"
     assert client.get("/api/ingest-runs?kind=dataset").json()["items"][0]["kind"] == "dataset"
     # Sample data stays and stays labelled.
     assert any(d["is_sample"] for d in items.values())
@@ -118,7 +134,7 @@ def test_unreachable_source_is_recorded_and_not_filled_in(client, monkeypatch, t
 
 def test_missing_license_is_not_registered(client, monkeypatch, tmp_path):
     pkg = {"result": {**PACKAGE["result"], "license_id": "", "license_title": ""}}
-    assert _ingest(monkeypatch, tmp_path, _web(**{f"{CKAN}/api/3/action/package_show": pkg}))[SRC.package_id] == "failed"
+    assert _ingest(monkeypatch, tmp_path, _web(**{f"{CKAN}/api/3/action/package_show?id={SRC.package_id}": pkg}))[SRC.package_id] == "failed"
 
 
 def test_spot_count_kpi_from_real_dataset_snapshots(client, monkeypatch, tmp_path):
@@ -145,7 +161,7 @@ def test_spot_count_kpi_from_real_dataset_snapshots(client, monkeypatch, tmp_pat
     assert client.get(f"/api/ai-proposals/{prop['id']}", headers=as_user(PARENT)).json()["status"] == "adopted_edited"
     pub = client.post(f"/api/issue-cards/{card['id']}/dashboard/publish", json={}, headers=as_user(PARENT)).json()
     view = client.get(f"/api/public/dashboards/{pub['dashboard']['public_slug']}").json()
-    spot = next(k for k in view["kpis"] if k["name"] == "スポット設置数")
+    spot = next(k for k in view["kpis"] if k["name"] == "外遊びできる場所の数")
     assert spot["data_status"] == "available" and spot["source"]["is_sample"] is False
     assert spot["source"]["license"] == "CC-BY-4.0"
 

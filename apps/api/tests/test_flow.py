@@ -6,29 +6,29 @@ from .conftest import as_user
 PARENT, VISITOR, STAFF = 1, 2, 3
 
 DRAFT = {
-    "title": "駅周辺: 授乳・おむつ替えスポットが少ない",
-    "target": "乳幼児連れの保護者",
-    "place_time": "駅周辺／外出中",
-    "evidence": [{"kind": "conversation", "text": "外出中に授乳場所が見つからず困った", "quote": "授乳できる場所がなくて困りました"}],
+    "title": "近所: 子どもが外遊びできる場所が少ない",
+    "target": "未就学児〜小学生の子どもと保護者",
+    "place_time": "住宅地の近所／放課後・休日",
+    "evidence": [{"kind": "conversation", "text": "近所の公園はボール遊び禁止で遊べる場所がない", "quote": "近所に子どもが思い切り遊べる場所がありません"}],
     "focus_area": "AREA-1",
-    "focus_reason": "子育て世帯の外出のしやすさに直結するため",
+    "focus_reason": "子どもが安心して外遊びできる環境は子育て支援の要望の最多のため",
     "kpi_candidates": [
-        {"name": "スポット設置数", "unit": "か所", "measurement": "区内の設置施設数（累計）", "data_availability": "open_data"},
-        {"name": "日別平均利用件数", "unit": "件", "measurement": "月次の日別平均", "data_availability": "open_data"},
-        {"name": "満足度（5段階）", "unit": "点", "measurement": "外出満足度調査", "data_availability": "survey_needed"},
-        {"name": "段差箇所件数", "unit": "件", "measurement": "点検結果", "data_availability": "unknown"},
+        {"name": "外遊びできる場所の数", "unit": "か所", "measurement": "区内の公園・児童遊園地・プレーパーク等の数（累計）", "data_availability": "open_data"},
+        {"name": "プレーパークの日別平均利用者数", "unit": "人", "measurement": "月次の日別平均", "data_availability": "open_data"},
+        {"name": "外遊び環境の満足度（5段階）", "unit": "点", "measurement": "外遊び環境の満足度調査", "data_availability": "survey_needed"},
+        {"name": "遊具の点検件数", "unit": "件", "measurement": "点検結果", "data_availability": "unknown"},
     ],
 }
 
 PLAN = {
-    "feasible": True, "date_column": "設置日", "value_column": "", "filter_column": "区名", "filter_value": "渋谷区",
-    "aggregation": "count_rows", "period": "month", "cumulative": True, "steps": ["渋谷区の行だけを使う", "設置月ごとに数えて累計する"],
+    "feasible": True, "date_column": "開設日", "value_column": "", "filter_column": "区名", "filter_value": "渋谷区",
+    "aggregation": "count_rows", "period": "month", "cumulative": True, "steps": ["渋谷区の行だけを使う", "開設月ごとに数えて累計する"],
 }
 
 
 def test_ai_unavailable_keeps_user_message_and_offers_manual_path(client):
     conv = client.post("/api/conversations", json={"news_id": 1}, headers=as_user(PARENT)).json()
-    out = client.post(f"/api/conversations/{conv['id']}/messages", json={"text": "授乳できる場所がなくて困りました"},
+    out = client.post(f"/api/conversations/{conv['id']}/messages", json={"text": "近所に子どもが思い切り遊べる場所がありません"},
                       headers=as_user(PARENT)).json()
     assert [m["speaker"] for m in out["messages"]] == ["user", "ai"]
     assert out["messages"][1]["ai_status"] == "unavailable"
@@ -40,10 +40,10 @@ def test_ai_unavailable_keeps_user_message_and_offers_manual_path(client):
 
 def _card_from_conversation(client, monkeypatch, edit_title=False):
     monkeypatch.setattr(chat, "respond", lambda a, h: {"reply": "どこで困りましたか？", "organization": [
-        {"kind": "experience", "text": "外出中に授乳場所が見つからなかった", "source_message_index": 1}]})
+        {"kind": "experience", "text": "近所の公園でボール遊びができなかった", "source_message_index": 1}]})
     monkeypatch.setattr(issue_card, "draft", lambda ctx: DRAFT)
     conv = client.post("/api/conversations", json={"news_id": 1}, headers=as_user(PARENT)).json()
-    out = client.post(f"/api/conversations/{conv['id']}/messages", json={"text": "授乳できる場所がなくて困りました"},
+    out = client.post(f"/api/conversations/{conv['id']}/messages", json={"text": "近所に子どもが思い切り遊べる場所がありません"},
                       headers=as_user(PARENT)).json()
     assert out["messages"][1]["organization"][0]["kind"] == "experience"
     prop = client.post("/api/issue-drafts", json={"origin_kind": "conversation", "origin_ref": conv["id"]},
@@ -87,8 +87,8 @@ def test_personal_info_requires_acknowledgement(client):
 
 
 def test_shaping_is_deterministic_and_cumulative(client):
-    rows = [{"区名": "渋谷区", "設置日": "2026-01-03"}, {"区名": "渋谷区", "設置日": "2026-01-20"},
-            {"区名": "新宿区", "設置日": "2026-02-01"}, {"区名": "渋谷区", "設置日": "2026/2/9"}]
+    rows = [{"区名": "渋谷区", "開設日": "2026-01-03"}, {"区名": "渋谷区", "開設日": "2026-01-20"},
+            {"区名": "新宿区", "開設日": "2026-02-01"}, {"区名": "渋谷区", "開設日": "2026/2/9"}]
     assert shaping.apply_plan(rows, PLAN) == [{"period": "2026-01", "value": 2.0}, {"period": "2026-02", "value": 3.0}]
 
 
@@ -96,8 +96,8 @@ def test_full_flow_to_staff_adoption(client, monkeypatch):
     _, card = _card_from_conversation(client, monkeypatch)
     kpi = card["kpis"][0]
     datasets = client.get("/api/datasets").json()["items"]
-    spots = next(d for d in datasets if d["file_path"] == "sample_nursing_spots.csv")
-    monkeypatch.setattr(opendata, "search", lambda k, cat: {"candidates": [{"dataset_id": spots["id"], "reason": "設置日がある"}]})
+    spots = next(d for d in datasets if d["file_path"] == "sample_play_spaces.csv")
+    monkeypatch.setattr(opendata, "search", lambda k, cat: {"candidates": [{"dataset_id": spots["id"], "reason": "開設日がある"}]})
     monkeypatch.setattr(shaping, "propose_plan", lambda k, cols, sample: PLAN)
     search = client.post(f"/api/kpis/{kpi['id']}/dataset-search", headers=as_user(PARENT)).json()
     assert search["payload"]["candidates"][0]["dataset"]["is_sample"] is True
@@ -118,7 +118,7 @@ def test_full_flow_to_staff_adoption(client, monkeypatch):
     assert view["status"] == "dashboard_published"
     assert all(e["kind"] != "conversation" for e in view["evidence_sources"])  # no individual voices in public
     statuses = {k["name"]: k["data_status"] for k in view["kpis"]}
-    assert statuses["スポット設置数"] == "available" and statuses["日別平均利用件数"] == "not_collected"
+    assert statuses["外遊びできる場所の数"] == "available" and statuses["プレーパークの日別平均利用者数"] == "not_collected"
     csv_text = client.get(f"/api/public/dashboards/{slug}/export.csv").text
     assert "未取得" in csv_text and "はい（架空）" in csv_text
 

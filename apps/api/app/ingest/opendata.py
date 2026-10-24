@@ -1,15 +1,18 @@
-"""Register real open data for the representative scenario (授乳・おむつ替えスポット).
+"""Register real open data for the representative scenario (近所で外遊びできる場所).
 
-Sources (checked by hand on 2026-10-20, see docs/features.md §7):
+Sources (checked by hand; see docs/features.md §7 and docs/sources/):
 
-- 東京都オープンデータカタログ (CKAN): 渋谷区 publishes 17 datasets there, none
-  about nursing / diaper-changing spots. 東京都福祉局「赤ちゃん・ふらっと一覧」
-  covers every 区市町村 including 渋谷区 (column 「地域」).
-  Its CKAN resource URL returns 404, so the current file is taken from the
-  link on the bureau's own page (the CKAN record links nowhere else).
+- 2026-10-24, scenario changed to outdoor play: 渋谷区「都市公園・都立公園一覧」
+  on 東京都オープンデータカタログ (CKAN `t131130d2025000003`, CC BY) lists the
+  ward's parks and children's play areas with location. It has no area,
+  play equipment or ball-play columns. The catalogs hold nothing for
+  「遊び場」「プレーパーク」「児童遊園」 (the searches are recorded at run time).
+- 2026-10-20, earlier scenario (授乳・おむつ替え): 東京都福祉局「赤ちゃん・ふらっと一覧」
+  covers every 区市町村 including 渋谷区 (column 「地域」). Its CKAN resource URL
+  returns 404, so the current file is taken from the link on the bureau's own
+  page. Kept as real data any issue card can use.
 - 渋谷区オープンデータ (ArcGIS Hub, linked from 渋谷区's CKAN record
-  「オープンデータ一覧」): no nursing-spot data; 「子育て関連施設の利用状況」 is
-  registered as related data.
+  「オープンデータ一覧」): 「子育て関連施設の利用状況」 is registered as related data.
 
 Metadata (title, publisher, license, dates) is always taken from the source
 at run time, never written here. The catalog searches are recorded too, so
@@ -34,7 +37,7 @@ TOKYO_CKAN = "https://catalog.data.metro.tokyo.lg.jp"
 SHIBUYA_CKAN_ORG = "t131130"
 SHIBUYA_HUB = "https://city-shibuya-data.opendata.arcgis.com"
 
-SEARCH_KEYWORDS = ["授乳", "おむつ", "赤ちゃん"]
+SEARCH_KEYWORDS = ["公園", "遊び場", "プレーパーク", "児童遊園"]
 
 FORMATS = {"CSV": "csv", "XLSX": "xlsx", "PDF": "pdf"}
 
@@ -60,6 +63,12 @@ class HubSource:
 
 CKAN_SOURCES = [
     CkanSource(
+        package_id="t131130d2025000003",
+        granularity="公園単位（緯度・経度つき）",
+        tags="子育て,外遊び,公園,児童遊園地,遊び場",
+        note="渋谷区の都市公園・児童遊園地の一覧。面積の列は空欄で、遊具やボール遊びの可否の列はない。開設日の列はない。",
+    ),
+    CkanSource(
         package_id="t000054d0000000347",
         granularity="施設単位・区市町村別（列「地域」）",
         tags="子育て,授乳,おむつ替え,施設,赤ちゃん・ふらっと",
@@ -74,7 +83,7 @@ HUB_SOURCES = [
         item_id="b58e72bd300d4cd28f114eb41872e326",
         granularity="施設・月別（年度と月の列）",
         tags="子育て,子育て支援センター,子育てひろば,利用者数",
-        note="区の子育て支援センター・子育てひろばの月別利用者数。授乳・おむつ替えスポットの利用件数ではない。",
+        note="区の子育て支援センター・子育てひろばの月別利用者数。公園やプレーパークの利用者数ではない。",
     ),
 ]
 

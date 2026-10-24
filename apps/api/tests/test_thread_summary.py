@@ -5,7 +5,7 @@ from app.agents import issue_card, thread_summary
 from .conftest import as_user
 
 PARENT, VISITOR, STAFF, MANAGER = 1, 2, 3, 4
-THREAD = 1  # seeded: 「授乳・おむつ替えスペースの不足について」 (posts by the manager and staff)
+THREAD = 1  # seeded: 「近所で外遊びできる場所が足りない」 (posts by the manager and staff)
 
 RESULT = {
     "summary": "駅周辺の授乳スペース不足について、区職員が現状の把握を求めている。",
@@ -110,7 +110,7 @@ def test_candidate_carries_into_the_card_and_is_adopted_on_save(client, monkeypa
     # The cited posts come first, verbatim and with the speaker's stance only.
     assert [(e["kind"], e["text"]) for e in p["evidence"][:2]] == [
         ("thread", "スレッドの発言1（コミュニティ運営）"), ("thread", "スレッドの発言2（区職員（子ども家庭部 子育て支援課））")]
-    assert p["evidence"][0]["quote"].startswith("駅周辺に授乳スペース")
+    assert p["evidence"][0]["quote"].startswith("家の近くの公園はボール遊びが禁止")
     card = client.post("/api/issue-cards", json={
         "proposal_id": d["id"], "title": p["title"], "target": p["target"], "place_time": p["place_time"],
         "evidence": p["evidence"], "focus_area": p["focus_area"], "focus_reason": p["focus_reason"],
@@ -124,7 +124,7 @@ def test_candidate_carries_into_the_card_and_is_adopted_on_save(client, monkeypa
     made = client.get(f"/api/threads/{THREAD}", headers=as_user(VISITOR)).json()["summary"]["issue_cards"]
     assert made == [{"candidate_index": 0, "id": card["id"], "title": p["title"]}]
     origin = client.get(f"/api/issue-cards/{card['id']}", headers=as_user(VISITOR)).json()["origin"]
-    assert origin == {"kind": "thread", "label": "授乳・おむつ替えスペースの不足について", "path": f"/community/1?thread={THREAD}"}
+    assert origin == {"kind": "thread", "label": "近所で外遊びできる場所が足りない", "path": f"/community/1?thread={THREAD}"}
 
 
 def test_recent_voice_returns_only_the_users_own_words(client, monkeypatch):
@@ -135,7 +135,7 @@ def test_recent_voice_returns_only_the_users_own_words(client, monkeypatch):
                 headers=as_user(PARENT))
     v = client.get("/api/me/recent-voice", headers=as_user(PARENT)).json()
     assert v["conversation_id"] == conv["id"] and v["texts"] == ["恵比寿駅で授乳場所を30分探しました"]
-    assert v["news_title"].startswith("区内の授乳")
+    assert v["news_title"].startswith("区立公園の遊び場")
     assert client.get("/api/me/recent-voice", headers=as_user(VISITOR)).json()["texts"] == []
 
 
@@ -157,7 +157,7 @@ def test_issue_draft_context_lists_registered_datasets(client, monkeypatch):
     r = client.post("/api/issue-drafts", json={"origin_kind": "news", "origin_ref": 1}, headers=as_user(PARENT))
     assert r.status_code == 201
     assert "[登録済みのデータセット]" in seen[0]
-    assert "授乳・おむつ替えスポット一覧（サンプル）" in seen[0] and "サンプル（架空）" in seen[0]
+    assert "外遊びできる場所の一覧（サンプル）" in seen[0] and "サンプル（架空）" in seen[0]
 
 
 def test_issue_card_agent_accepts_thread_evidence():

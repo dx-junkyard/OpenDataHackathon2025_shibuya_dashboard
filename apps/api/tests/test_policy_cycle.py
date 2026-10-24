@@ -9,18 +9,18 @@ from .test_flow import PARENT, PLAN, STAFF, VISITOR, _card_from_conversation
 MANAGER = 4  # member of community 1 in the seed
 
 NEWS_DRAFT = {
-    "title": "駅周辺の授乳・おむつ替えスポットを増やします",
-    "body": "区民から、外出中に授乳できる場所が見つからないという声が寄せられました。……",
+    "title": "近所で外遊びできる場所を増やします",
+    "body": "区民から、近所に子どもが思い切り遊べる場所がないという声が寄せられました。……",
     "category": "子育て",
-    "annotation_label": "民間施設への設置協力を開始",
+    "annotation_label": "校庭開放の時間帯を拡大",
 }
 
 
 def _published(client, monkeypatch):
     _, card = _card_from_conversation(client, monkeypatch)
     kpi = card["kpis"][0]
-    spots = next(d for d in client.get("/api/datasets").json()["items"] if d["file_path"] == "sample_nursing_spots.csv")
-    monkeypatch.setattr(opendata, "search", lambda k, cat: {"candidates": [{"dataset_id": spots["id"], "reason": "設置日がある"}]})
+    spots = next(d for d in client.get("/api/datasets").json()["items"] if d["file_path"] == "sample_play_spaces.csv")
+    monkeypatch.setattr(opendata, "search", lambda k, cat: {"candidates": [{"dataset_id": spots["id"], "reason": "開設日がある"}]})
     monkeypatch.setattr(shaping, "propose_plan", lambda k, cols, sample: PLAN)
     search = client.post(f"/api/kpis/{kpi['id']}/dataset-search", headers=as_user(PARENT)).json()
     plan = client.post(f"/api/kpis/{kpi['id']}/shaping-plans", json={"dataset_id": spots["id"], "search_proposal_id": search["id"]},
@@ -33,7 +33,7 @@ def _published(client, monkeypatch):
 def _adopted(client, monkeypatch):
     card, pub = _published(client, monkeypatch)
     r = client.post(f"/api/dashboards/{pub['dashboard']['id']}/decisions",
-                    json={"state": "adopted", "reason": "民間施設への設置協力を呼びかけます"}, headers=as_user(STAFF))
+                    json={"state": "adopted", "reason": "校庭開放の時間帯の拡大を検討します"}, headers=as_user(STAFF))
     assert r.status_code == 201
     return card, pub
 
@@ -57,8 +57,9 @@ def test_policy_news_publish_links_annotates_and_notifies(client, monkeypatch):
     monkeypatch.setattr(policy_news, "draft", lambda ctx, cats: seen.update(ctx=ctx, cats=cats) or NEWS_DRAFT)
     prop = client.post(f"/api/issue-cards/{card['id']}/policy-news-drafts", headers=as_user(STAFF)).json()
     assert prop["kind"] == "policy_news_draft" and prop["status"] == "proposed"
-    assert "授乳できる場所がなくて困りました" not in seen["ctx"]  # individual quotes stay out of the official article
-    assert "民間施設への設置協力を呼びかけます" in seen["ctx"] and "子育て" in seen["cats"]
+    assert "近所に子どもが思い切り遊べる場所がありません" not in seen["ctx"]  # individual quotes stay out of the official article
+    assert "未取得人" not in seen["ctx"] and "現在 未取得（目標 未設定）" in seen["ctx"]  # no unit after a missing value
+    assert "校庭開放の時間帯の拡大を検討します" in seen["ctx"] and "子育て" in seen["cats"]
     # Nothing is published while the draft is only proposed (F-21).
     assert all(n["kind"] != "policy" for n in client.get("/api/news").json()["items"])
     before = {n["id"] for n in client.get("/api/me/notifications", headers=as_user(PARENT)).json()["items"]}
@@ -103,7 +104,7 @@ def test_edited_policy_news_is_adopted_edited(client, monkeypatch):
     monkeypatch.setattr(policy_news, "draft", lambda ctx, cats: NEWS_DRAFT)
     prop = client.post(f"/api/issue-cards/{card['id']}/policy-news-drafts", headers=as_user(STAFF)).json()
     client.post(f"/api/issue-cards/{card['id']}/policy-news",
-                json=_publish_body(proposal_id=prop["id"], title="駅周辺のスポットを増やします（第1弾）"), headers=as_user(STAFF))
+                json=_publish_body(proposal_id=prop["id"], title="近所で外遊びできる場所を増やします（第1弾）"), headers=as_user(STAFF))
     assert client.get(f"/api/ai-proposals/{prop['id']}", headers=as_user(STAFF)).json()["status"] == "adopted_edited"
 
 
@@ -126,15 +127,15 @@ def test_before_after_comparison_does_not_claim_causality(client, monkeypatch):
     assert "因果関係は未確認" in view["causality_note"]
     [cmp] = view["comparisons"]
     rows = {r["name"]: r for r in cmp["kpis"]}
-    spots = rows["スポット設置数"]
-    pts = next(k for k in view["kpis"] if k["name"] == "スポット設置数")["points"]
+    spots = rows["外遊びできる場所の数"]
+    pts = next(k for k in view["kpis"] if k["name"] == "外遊びできる場所の数")["points"]
     before = [p["value"] for p in pts if p["period"] < "2026-04"]
     after = [p["value"] for p in pts if p["period"] >= "2026-04"]
     assert spots["state"] == "ok" and spots["before_value"] == before[-1] and spots["after_value"] == after[-1]
     assert spots["after_periods"] == len(after)
     assert spots["after_per_period"] == (after[-1] - before[-1]) / len(after)
     assert spots["before_per_period"] == (before[-1] - before[-6]) / 5
-    assert rows["日別平均利用件数"]["state"] == "no_data"
+    assert rows["プレーパークの日別平均利用者数"]["state"] == "no_data"
     later = client.post(f"/api/issue-cards/{card['id']}/dashboard/annotations",
                         json={"period": "2027-01", "label": "次の施策"}, headers=as_user(STAFF)).json()
     assert later["comparisons"][1]["kpis"][0]["state"] == "no_after"

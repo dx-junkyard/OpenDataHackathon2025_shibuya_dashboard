@@ -42,10 +42,15 @@ def _adopted_card(conn, card_id: int, user: dict) -> dict:
     return card
 
 
+def _with_unit(value, unit: str, missing: str) -> str:
+    """A value with its unit, or the missing label alone (never 「未取得人」)."""
+    return missing if value is None else f"{value}{unit}"
+
+
 def _context(card: dict) -> str:
     kpis = "\n".join(
-        f"- {k['name']}: 現在 {k['points'][-1]['value'] if k['points'] else '未取得'}{k['unit']}"
-        f"（目標 {k['target_value'] if k['target_value'] is not None else '未設定'}{k['unit']}）"
+        f"- {k['name']}: 現在 {_with_unit(k['points'][-1]['value'] if k['points'] else None, k['unit'], '未取得')}"
+        f"（目標 {_with_unit(k['target_value'], k['unit'], '未設定')}）"
         for k in card["kpis"])
     # Individual voices stay out of the official article (F-17); only their summary text is passed.
     evidence = "\n".join(f"- {e['text']}" for e in card["evidence"])
