@@ -11,6 +11,7 @@ System Purpose（目的の正本）は [docs/vision.md §2](docs/vision.md#2-vis
 - 目的・対象者・到達目標: [docs/vision.md](docs/vision.md)
 - 利用体験（Journey / UX Requirement）: [docs/ux.md](docs/ux.md)
 - 機能（Feature）と MVP の範囲: [docs/features.md](docs/features.md)
+- 区の公開資料から Vision・UX・Feature を導く設定と計画: [docs/vision-sourcing.md](docs/vision-sourcing.md)
 
 設計と改善は [probe-agent](https://github.com/dx-junkyard/probe-agent) で行っている（インタビューによる UX の磨き込み、
 Objective → Journey → Requirement → Feature の登録、AI エージェントの trace と shadow 比較）。
