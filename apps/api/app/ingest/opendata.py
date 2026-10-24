@@ -21,6 +21,7 @@ at run time, never written here. The catalog searches are recorded too, so
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import time
@@ -51,6 +52,8 @@ class CkanSource:
     # Used only when the CKAN resource itself cannot be fetched.
     landing_page: str = ""
     landing_link_text: str = ""
+    # Sources publishing the same data share a group and are compared (F-08).
+    variant_group: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,10 @@ class HubSource:
     granularity: str
     tags: str
     note: str
+    variant_group: str = ""
+
+
+PARKS_GROUP = "渋谷区の公園一覧"
 
 
 CKAN_SOURCES = [
@@ -66,7 +73,8 @@ CKAN_SOURCES = [
         package_id="t131130d2025000003",
         granularity="公園単位（緯度・経度つき）",
         tags="子育て,外遊び,公園,児童遊園地,遊び場",
-        note="渋谷区の都市公園・児童遊園地の一覧。面積の列は空欄で、遊具やボール遊びの可否の列はない。開設日の列はない。",
+        note="渋谷区の都市公園・児童遊園地の一覧（東京都オープンデータカタログ掲載の版）。遊具やボール遊びの可否の列はない。開設日の列はない。",
+        variant_group=PARKS_GROUP,
     ),
     CkanSource(
         package_id="t000054d0000000347",
@@ -84,6 +92,13 @@ HUB_SOURCES = [
         granularity="施設・月別（年度と月の列）",
         tags="子育て,子育て支援センター,子育てひろば,利用者数",
         note="区の子育て支援センター・子育てひろばの月別利用者数。公園やプレーパークの利用者数ではない。",
+    ),
+    HubSource(
+        item_id="992a844b724d43f3a5fd39b30bce5d5c",
+        granularity="公園単位（緯度・経度つき）",
+        tags="子育て,外遊び,公園,児童遊園地,遊び場,トイレ",
+        note="渋谷区の公園・児童遊園地の一覧（渋谷区オープンデータ掲載の版）。面積・トイレ・身障者用トイレ・親水施設の列がある。遊具やボール遊びの可否の列はない。",
+        variant_group=PARKS_GROUP,
     ),
 ]
 
@@ -147,6 +162,9 @@ def store(conn: sqlite3.Connection, datasets_dir: str, *, source_key: str, meta:
     if row is not None:
         same = conn.execute("SELECT 1 FROM dataset_snapshots WHERE dataset_id = ? AND sha256 = ?", (row["id"], sha)).fetchone()
         if same:
+            # The file is the same, but which group of versions it belongs to is
+            # configuration and may have changed since it was first stored.
+            conn.execute("UPDATE datasets SET variant_group = ? WHERE id = ?", (meta.get("variant_group", ""), row["id"]))
             return "unchanged"
     os.makedirs(datasets_dir, exist_ok=True)
     safe = "".join(c if c.isalnum() else "-" for c in source_key.split(":")[-1])
@@ -165,17 +183,17 @@ def store(conn: sqlite3.Connection, datasets_dir: str, *, source_key: str, meta:
     if row is None:
         cur = conn.execute(
             "INSERT INTO datasets (title, publisher, description, source_url, license, file_format, file_path, updated_on,"
-            " granularity, tags, is_sample, source_key, file_url) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)",
+            " granularity, tags, is_sample, source_key, file_url, variant_group) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?)",
             (cols["title"], cols["publisher"], cols["description"], cols["source_url"], cols["license"], fmt, name,
-             as_of, cols["granularity"], cols["tags"], source_key, file_url))
+             as_of, cols["granularity"], cols["tags"], source_key, file_url, cols.get("variant_group", "")))
         dataset_id = cur.lastrowid
     else:
         dataset_id = row["id"]
         conn.execute(
             "UPDATE datasets SET title=?, publisher=?, description=?, source_url=?, license=?, file_format=?, file_path=?,"
-            " updated_on=?, granularity=?, tags=?, file_url=? WHERE id=?",
+            " updated_on=?, granularity=?, tags=?, file_url=?, variant_group=? WHERE id=?",
             (cols["title"], cols["publisher"], cols["description"], cols["source_url"], cols["license"], fmt, name,
-             as_of, cols["granularity"], cols["tags"], file_url, dataset_id))
+             as_of, cols["granularity"], cols["tags"], file_url, cols.get("variant_group", ""), dataset_id))
     conn.execute(
         "INSERT INTO dataset_snapshots (dataset_id, as_of, file_format, file_path, file_url, sha256, fetched_at)"
         " VALUES (?,?,?,?,?,?,?) ON CONFLICT (dataset_id, as_of) DO UPDATE SET file_format=excluded.file_format,"
@@ -232,6 +250,7 @@ def ingest_ckan(conn: sqlite3.Connection, datasets_dir: str, src: CkanSource) ->
             "license": pkg.get("license_id") or pkg.get("license_title") or "",
             "granularity": src.granularity,
             "tags": src.tags,
+            "variant_group": src.variant_group,
         }
         if not meta["license"] or not meta["publisher"]:
             raise IngestFailed("カタログにライセンスまたは提供者の記載がありません")
@@ -246,6 +265,29 @@ def ingest_ckan(conn: sqlite3.Connection, datasets_dir: str, src: CkanSource) ->
 
 # ---------------------------------------------------------------- ArcGIS Hub
 
+def _hub_wait() -> tuple[int, float]:
+    """(attempts, seconds between them) while the Hub prepares a download."""
+    try:
+        return max(1, int(os.getenv("HUB_DOWNLOAD_ATTEMPTS", "6"))), max(0.0, float(os.getenv("HUB_DOWNLOAD_WAIT", "5")))
+    except ValueError:
+        return 6, 5.0
+
+
+def _fetch_hub_download(url: str) -> http.Fetched:
+    """The Hub answers HTTP 202 while it regenerates a download file. That is
+    "not ready yet", not a failure of the source: wait and ask again, and say
+    plainly if it is still not ready."""
+    attempts, wait = _hub_wait()
+    for i in range(attempts):
+        try:
+            return http.fetch(url)
+        except http.FetchError as exc:
+            if exc.reason != "HTTP 202":
+                raise
+            if i + 1 < attempts:
+                time.sleep(wait)
+    raise IngestFailed(f"提供元がファイルを準備中です（HTTP 202 が {attempts} 回続きました）。次回の取得で取り直します: {url}")
+
 
 def ingest_hub(conn: sqlite3.Connection, datasets_dir: str, src: HubSource) -> str:
     label = f"渋谷区オープンデータ（ArcGIS Hub）{src.item_id}"
@@ -258,7 +300,7 @@ def ingest_hub(conn: sqlite3.Connection, datasets_dir: str, src: HubSource) -> s
         lic = p.get("license") or html.strip_tags(p.get("licenseInfo") or "")
         if not lic:
             raise IngestFailed("ライセンスの記載がありません")
-        got = http.fetch(f"{SHIBUYA_HUB}/api/download/v1/items/{src.item_id}/csv?layers=0")
+        got = _fetch_hub_download(f"{SHIBUYA_HUB}/api/download/v1/items/{src.item_id}/csv?layers=0")
         meta = {
             "title": p["title"],
             # The Hub site is the portal 渋谷区 links from its own catalog record.
@@ -268,6 +310,7 @@ def ingest_hub(conn: sqlite3.Connection, datasets_dir: str, src: HubSource) -> s
             "license": lic,
             "granularity": src.granularity,
             "tags": src.tags,
+            "variant_group": src.variant_group,
         }
         status = store(conn, datasets_dir, source_key=f"hub:{SHIBUYA_HUB}:{src.item_id}", meta=meta,
                        content=got.content, fmt="csv",
@@ -279,6 +322,67 @@ def ingest_hub(conn: sqlite3.Connection, datasets_dir: str, src: HubSource) -> s
     return status
 
 
+# ---------------------------------------------------------------- versions of the same data
+
+
+def _profile(path: str, fmt: str) -> Optional[Dict[str, object]]:
+    """Row count and the columns that are empty in every row, from the first table."""
+    try:
+        tables = shaping.read_tables(path, fmt)
+    except shaping.ShapingError:
+        return None
+    if not tables or not tables[0]["rows"]:
+        return None
+    header, *rows = tables[0]["rows"]
+    empty = [str(h) for i, h in enumerate(header)
+             if str(h).strip() and all(i >= len(r) or str(r[i]).strip() == "" for r in rows)]
+    return {"rows": len(rows), "empty_columns": empty}
+
+
+def compare_variants(conn: sqlite3.Connection, datasets_dir: str) -> None:
+    """For each group of datasets publishing the same data, record how each
+    version differs from the others: a different row count, and columns that
+    are empty in every row of one version. Facts only -- which version is
+    right is the publisher's call, so it is never decided here."""
+    groups: Dict[str, List[sqlite3.Row]] = {}
+    for d in conn.execute("SELECT * FROM datasets WHERE variant_group != '' ORDER BY id"):
+        groups.setdefault(d["variant_group"], []).append(d)
+    for group, members in groups.items():
+        profiles = {d["id"]: _profile(os.path.join(datasets_dir, d["file_path"]), d["file_format"]) for d in members}
+        for d in members:
+            notes: List[Dict[str, object]] = []
+            mine = profiles[d["id"]]
+            for other in members:
+                if other["id"] == d["id"]:
+                    continue
+                theirs = profiles[other["id"]]
+                label = f"{other['title']}（{other['publisher']}、{other['updated_on'] or '時点不明'} 時点）"
+                if mine is None or theirs is None:
+                    notes.append({"kind": "unreadable", "other_dataset_id": other["id"],
+                                  "text": f"同じデータの別の版 {label} と比べられませんでした（表として読めない版があります）"})
+                    continue
+                notes.append({"kind": "other_version", "other_dataset_id": other["id"],
+                              "text": f"同じデータの別の版があります: {label}、{theirs['rows']} 行"})
+                if mine["rows"] != theirs["rows"]:
+                    notes.append({"kind": "row_count_differs", "other_dataset_id": other["id"],
+                                  "text": f"件数が版によって違います（この版 {mine['rows']} 行、別の版 {theirs['rows']} 行）。"
+                                          "どちらが正しいかは提供者に確認が必要です"})
+            if mine is not None:
+                for col in mine["empty_columns"]:
+                    notes.append({"kind": "empty_column", "other_dataset_id": None,
+                                  "text": f"この版では「{col}」がすべて空欄です"})
+            conn.execute("UPDATE datasets SET variant_notes = ? WHERE id = ?",
+                         (json.dumps(notes, ensure_ascii=False), d["id"]))
+        if len(members) < 2:
+            record(conn, "dataset", f"版の比較: {group}", "not_found", "1 版のみで、比べる版がありません")
+            continue
+        differs = any(n["kind"] in ("row_count_differs", "empty_column", "unreadable")
+                      for d in members for n in json.loads(conn.execute(
+                          "SELECT variant_notes FROM datasets WHERE id = ?", (d["id"],)).fetchone()[0]))
+        record(conn, "dataset", f"版の比較: {group}", "ok",
+               f"{len(members)} 版" + ("、違いあり" if differs else "、違いなし"))
+
+
 def run(conn: sqlite3.Connection, datasets_dir: str) -> Dict[str, str]:
     search_scope(conn)
     out = {}
@@ -286,6 +390,7 @@ def run(conn: sqlite3.Connection, datasets_dir: str) -> Dict[str, str]:
         out[c.package_id] = ingest_ckan(conn, datasets_dir, c)
     for h in HUB_SOURCES:
         out[h.item_id] = ingest_hub(conn, datasets_dir, h)
+    compare_variants(conn, datasets_dir)
     return out
 
 

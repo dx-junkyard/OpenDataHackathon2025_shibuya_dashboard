@@ -11,13 +11,20 @@ from pydantic import BaseModel, Field
 from .. import llm
 from ..agents import chat
 from ..db import get_conn
-from ..deps import current_user
+from ..deps import current_user, require_staff
+from ..domain import FOCUS_AREAS
+
+FOCUS_AREA_SOURCE_LABELS = {
+    "": "未判定", "category": "区の分類から", "ai": "AI の推定", "person": "区職員が設定", "sample": "サンプル",
+}
 
 router = APIRouter()
 
 
 def news_out(row, conn=None) -> dict:
     out = {k: row[k] for k in row.keys()} | {"is_sample": bool(row["is_sample"])}
+    out["focus_area_label"] = FOCUS_AREAS.get(row["focus_area"], "")
+    out["focus_area_source_label"] = FOCUS_AREA_SOURCE_LABELS.get(row["focus_area_source"], "")
     if conn is not None and row["kind"] == "policy" and row["issue_card_id"]:
         # Policy news links back to the issue card and its public dashboard (F-14).
         c = conn.execute(
@@ -31,7 +38,7 @@ def news_out(row, conn=None) -> dict:
 
 
 @router.get("/news")
-def list_news(category: Optional[str] = None):
+def list_news(category: Optional[str] = None, focus_area: Optional[str] = None):
     """
     probe-agent:
       role: 区のニュースをカテゴリで絞り込んで一覧にする API ハンドラ（出典・担当課・掲載日・サンプルかどうか付き）
@@ -43,16 +50,26 @@ def list_news(category: Optional[str] = None):
       consumers: [apps.web.src.pages.News.NewsList]
       state_effects: [database-read]
     """
-    q = "SELECT * FROM news"
-    args: tuple = ()
+    if focus_area and focus_area not in FOCUS_AREAS and focus_area != "unassigned":
+        raise HTTPException(422, "注力分野の指定が正しくありません")
+    where, args = [], []
     if category:
-        q += " WHERE category = ?"
-        args = (category,)
+        where.append("category = ?")
+        args.append(category)
+    if focus_area == "unassigned":
+        where.append("focus_area = ''")
+    elif focus_area:
+        where.append("focus_area = ?")
+        args.append(focus_area)
+    q = "SELECT * FROM news" + (" WHERE " + " AND ".join(where) if where else "")
     with get_conn() as conn:
-        rows = conn.execute(q + " ORDER BY published_at DESC, id DESC", args).fetchall()
+        rows = conn.execute(q + " ORDER BY published_at DESC, id DESC", tuple(args)).fetchall()
         cats = [r[0] for r in conn.execute("SELECT DISTINCT category FROM news ORDER BY category")]
+        counts = {r[0]: r[1] for r in conn.execute("SELECT focus_area, COUNT(*) FROM news GROUP BY focus_area")}
         items = [news_out(r, conn) for r in rows]
-    return {"categories": cats, "items": items}
+    areas = [{"id": k, "label": v, "count": counts.get(k, 0)} for k, v in FOCUS_AREAS.items()]
+    # Articles without an area are counted, not hidden (UXR-X5): 未判定 and AI「該当なし」 both land here.
+    return {"categories": cats, "focus_areas": areas, "unassigned_count": counts.get("", 0), "items": items}
 
 
 @router.get("/news/{news_id}")
@@ -62,6 +79,38 @@ def get_news(news_id: int):
         if row is None:
             raise HTTPException(404, "記事が見つかりません")
         return news_out(row, conn)
+
+
+class FocusAreaIn(BaseModel):
+    focus_area: str = Field(max_length=20)
+    reason: str = Field(default="", max_length=300)
+
+
+@router.put("/news/{news_id}/focus-area")
+def set_news_focus_area(news_id: int, body: FocusAreaIn, user: dict = Depends(current_user)):
+    """
+    probe-agent:
+      role: 区職員がニュースの注力分野を設定・訂正する API ハンドラ（AI の推定や区の分類を人が上書きする）
+      capability: F-01 ニュース集約・配信、F-21 AI 提案の共通パターン
+      system_purpose: AI の推定を確定扱いにせず、人が直せるようにする（P-2、GAP-OP-2）
+      probe_value: AI の推定が区職員に直された件数と、直した後の分野を観測できる
+      element_type: boundary
+      operation_kind: write
+      consumers: [apps.web.src.pages.News.NewsDetail]
+      state_effects: [database-write]
+    """
+    require_staff(user)
+    if body.focus_area and body.focus_area not in FOCUS_AREAS:
+        raise HTTPException(422, "注力分野の指定が正しくありません")
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM news WHERE id = ?", (news_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "記事が見つかりません")
+        reason = body.reason.strip() or ("該当する分野なし" if not body.focus_area else "区職員が設定")
+        conn.execute(
+            "UPDATE news SET focus_area = ?, focus_area_source = 'person', focus_area_reason = ?, focus_area_by = ? WHERE id = ?",
+            (body.focus_area, reason, f"{user['display_name']}（{user['department']}）", news_id))
+        return news_out(conn.execute("SELECT * FROM news WHERE id = ?", (news_id,)).fetchone(), conn)
 
 
 class ConversationCreate(BaseModel):

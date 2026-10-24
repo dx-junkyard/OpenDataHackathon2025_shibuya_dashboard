@@ -117,9 +117,11 @@ def publish_policy_news(card_id: int, body: PolicyNewsIn, user: dict = Depends(c
             decision = "adopted" if all(getattr(body, f) == draft[f] for f in DRAFT_FIELDS) else "adopted_edited"
         now = time.time()
         cur = conn.execute(
-            "INSERT INTO news (title, body, category, focus_area, department, source_name, is_sample, kind,"
-            " issue_card_id, published_at) VALUES (?,?,?,?,?,?,0,'policy',?,?)",
-            (body.title, body.body, body.category, card["focus_area"], user["department"],
+            "INSERT INTO news (title, body, category, focus_area, focus_area_source, focus_area_reason, focus_area_by,"
+            " department, source_name, is_sample, kind, issue_card_id, published_at)"
+            " VALUES (?,?,?,?,'person','元の課題カードの注力分野',?,?,?,0,'policy',?,?)",
+            (body.title, body.body, body.category, card["focus_area"], f"{user['display_name']}（{user['department']}）",
+             user["department"],
              "渋谷区 施策ニュース（区職員が確認して配信）", card_id, time.strftime("%Y-%m-%d", time.localtime(now))))
         news_id = int(cur.lastrowid)
         conn.execute(

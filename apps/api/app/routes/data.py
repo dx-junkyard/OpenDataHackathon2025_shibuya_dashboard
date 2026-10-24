@@ -34,7 +34,9 @@ def _kpi_for_author(conn, kpi_id: int, user: dict):
 
 
 def dataset_out(row) -> dict:
-    return {**dict(row), "is_sample": bool(row["is_sample"])}
+    out = {**dict(row), "is_sample": bool(row["is_sample"])}
+    out["variant_notes"] = json.loads(out.get("variant_notes") or "[]")
+    return out
 
 
 @router.get("/datasets")

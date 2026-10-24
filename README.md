@@ -52,6 +52,7 @@ http://localhost:5180 を開き、右上で利用者（保護者・区職員な�
 | `LLM_EFFORT` | `anthropic` のときの effort（既定 `medium`） |
 | `LLM_API_KEY` | `LLM_PROVIDER=openai` のときの OpenAI 互換 API のキー。未設定なら AI は使えず、手入力で操作できる（AI 失敗を成功に見せない） |
 | `LLM_MODEL` | モデルを上書きする。既定は `openai` なら `gpt-5.4-mini`、`anthropic` なら `claude-opus-5-5` |
+| `HUB_DOWNLOAD_ATTEMPTS` / `HUB_DOWNLOAD_WAIT` | 渋谷区オープンデータ（ArcGIS Hub）がファイルを準備中（HTTP 202）のときに取り直す回数と間隔（秒）。既定 6 回・5 秒 |
 | `PROBE_ENABLED` / `PROBE_SERVER_URL` / `PROBE_API_KEY` | probe-agent へ trace を送る。SDK は `pip install -e <probe-agent>/packages/python-probe` |
 
 テスト: `apps/api/.venv/bin/python -m pytest apps/api/tests`

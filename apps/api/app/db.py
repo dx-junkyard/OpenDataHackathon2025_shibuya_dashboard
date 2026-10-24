@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS news (
     body TEXT NOT NULL,
     category TEXT NOT NULL,
     focus_area TEXT NOT NULL DEFAULT '',
+    -- Where focus_area came from (F-01): '' = not judged yet, category = the city's own
+    -- category, ai = an AI estimate (focus_area '' means the AI found no area),
+    -- person = set or corrected by city staff, sample = demo data.
+    focus_area_source TEXT NOT NULL DEFAULT '' CHECK (focus_area_source IN ('','category','ai','person','sample')),
+    focus_area_reason TEXT NOT NULL DEFAULT '',
+    focus_area_by TEXT NOT NULL DEFAULT '',
     department TEXT NOT NULL DEFAULT '',
     source_url TEXT NOT NULL DEFAULT '',
     source_name TEXT NOT NULL DEFAULT '',
@@ -128,7 +134,11 @@ CREATE TABLE IF NOT EXISTS datasets (
     tags TEXT NOT NULL DEFAULT '',
     is_sample INTEGER NOT NULL DEFAULT 0,
     source_key TEXT,
-    file_url TEXT NOT NULL DEFAULT ''
+    file_url TEXT NOT NULL DEFAULT '',
+    -- Datasets that are different publications of the same data share a group;
+    -- variant_notes (JSON) says how this version differs from the others (F-08).
+    variant_group TEXT NOT NULL DEFAULT '',
+    variant_notes TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS datasets_source_key ON datasets(source_key) WHERE source_key IS NOT NULL;

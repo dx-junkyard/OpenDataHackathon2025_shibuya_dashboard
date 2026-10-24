@@ -118,8 +118,9 @@ def seed() -> None:
         conn.executemany("INSERT INTO users (id, display_name, role, attribute, department) VALUES (?,?,?,?,?)", USERS)
         for title, body, cat, area, dept, date in NEWS:
             conn.execute(
-                "INSERT INTO news (title, body, category, focus_area, department, source_name, is_sample, published_at)"
-                " VALUES (?,?,?,?,?,?,1,?)", (title, body, cat, area, dept, SAMPLE_PUBLISHER, date))
+                "INSERT INTO news (title, body, category, focus_area, focus_area_source, focus_area_reason, department,"
+                " source_name, is_sample, published_at) VALUES (?,?,?,?,'sample','デモ用のサンプル記事に設定',?,?,1,?)",
+                (title, body, cat, area, dept, SAMPLE_PUBLISHER, date))
         for c in COMMUNITIES:
             conn.execute("INSERT INTO communities (name, description, category, focus_area, area, hot_topic) VALUES (?,?,?,?,?,?)", c)
         for uid in (4, 3):

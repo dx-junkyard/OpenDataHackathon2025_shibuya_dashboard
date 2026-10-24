@@ -20,6 +20,10 @@ def main(argv: list[str]) -> None:
             print("datasets:", opendata.run(conn, os.path.abspath(datasets_dir())))
         if what in ("news", "all"):
             print("news:", news.run(conn))
+    if what in ("news", "all"):
+        # After the news transaction is committed: model calls never hold the database.
+        print("news focus areas:", news.classify_unassigned())
+    with get_conn() as conn:
         for r in conn.execute("SELECT kind, status, source, message FROM ingest_runs WHERE id > ? ORDER BY id", (start,)):
             print(f"  [{r['kind']}:{r['status']}] {r['source']} — {r['message']}")
 

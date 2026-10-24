@@ -15,6 +15,8 @@ def _catalog_prompt(kpi: Dict[str, Any], catalog: List[Dict[str, Any]]) -> str:
     lines = [f"KPI: {kpi['name']}（単位: {kpi['unit']}、測り方: {kpi['measurement']}）", "", "データセット一覧:"]
     for d in catalog:
         lines.append(f"- id={d['id']} {d['title']} / 提供: {d['publisher']} / {d['description']} / 粒度: {d['granularity']} / タグ: {d['tags']}")
+        for n in d.get("variant_notes") or []:
+            lines.append(f"  - 版の注意: {n['text']}")
     return "\n".join(lines)
 
 
@@ -26,6 +28,7 @@ def _known(out: Dict[str, Any], catalog: List[Dict[str, Any]]) -> Dict[str, Any]
 
 SYSTEM = """あなたはオープンデータの検索を手伝います。KPI と、登録済みデータセットの一覧が与えられます。
 - 各データセットについて、KPI をそのデータで直接測れるか（direct）、間接的な手がかりにしかならないか（indirect）を判定し、関係するものだけを関連が強い順に最大 5 件返します。無関係なものは返しません。
+- 同じデータに複数の版があるとき（「版の注意」）は、KPI に必要な列が空欄でない版を優先し、理由に版の違いを書きます。
 - dataset_id は一覧にある値だけを使います。"""
 
 SCHEMA = llm.obj(

@@ -15,6 +15,7 @@ HUB = opendata.SHIBUYA_HUB
 SRC = next(c for c in opendata.CKAN_SOURCES if c.package_id == "t000054d0000000347")  # 赤ちゃん・ふらっと（landing page fallback）
 PARK_SRC = next(c for c in opendata.CKAN_SOURCES if c.package_id == "t131130d2025000003")  # 代表シナリオ: 公園一覧
 HUB_SRC = opendata.HUB_SOURCES[0]
+HUB_PARK_SRC = next(h for h in opendata.HUB_SOURCES if h.item_id == "992a844b724d43f3a5fd39b30bce5d5c")
 CSV_URL = "https://www.fukushi.metro.tokyo.lg.jp/documents/d/fukushi/flat_r81007.csv"
 
 PACKAGE = {"result": {
@@ -41,6 +42,11 @@ PARK_CSV = ("﻿全国地方公共団体コード,ID,地方公共団体名,名�
             "131130,131130_004,東京都渋谷区,豊沢児童遊園地,渋谷区恵比寿2-17-19,35.6468907,139.7193016,,\n").encode("utf-8")
 HUB_ITEM = {"properties": {"title": "子育て関連施設の利用状況", "license": "CC-BY-4.0", "modified": 1758527437000,
                            "description": "<p>利用者数です。</p><p>・2025年4月1日時点の情報です。</p>"}}
+HUB_PARK_ITEM = {"properties": {"title": "公園一覧", "license": "CC-BY-4.0", "modified": 1774421902000,
+                                "description": "<p>渋谷区の公園一覧です。</p><p>令和8年3月31日時点での情報です。</p>"}}
+HUB_PARK_CSV = ("﻿全国地方公共団体コード,No,名称,緯度,経度,面積（平方メートル）,トイレ有無\n"
+                "131130,1,恵比寿東公園,35.64,139.71,2666,有\n131130,2,新橋ふれあい公園,35.64,139.71,137,無\n"
+                "131130,3,豊沢児童遊園地,35.64,139.71,345,有\n").encode("utf-8")
 HUB_CSV = "﻿年度,施設名,月,利用者数\n2023,本町子育て支援センター,4,237\n".encode("utf-8")
 
 
@@ -72,6 +78,8 @@ def _web(**overrides):
         CSV_URL: FLAT_CSV,
         f"{HUB}/api/search/v1/collections/dataset/items/{HUB_SRC.item_id}": HUB_ITEM,
         f"{HUB}/api/download/v1/items/{HUB_SRC.item_id}/csv": HUB_CSV,
+        f"{HUB}/api/search/v1/collections/dataset/items/{HUB_PARK_SRC.item_id}": HUB_PARK_ITEM,
+        f"{HUB}/api/download/v1/items/{HUB_PARK_SRC.item_id}/csv": HUB_PARK_CSV,
     }
     routes.update(overrides)
     return FakeWeb(routes)
@@ -89,7 +97,8 @@ def _runs(kind="dataset"):
 
 
 def test_dataset_is_registered_with_source_metadata(client, monkeypatch, tmp_path):
-    assert _ingest(monkeypatch, tmp_path, _web()) == {PARK_SRC.package_id: "ok", SRC.package_id: "ok", HUB_SRC.item_id: "ok"}
+    assert _ingest(monkeypatch, tmp_path, _web()) == {PARK_SRC.package_id: "ok", SRC.package_id: "ok", HUB_SRC.item_id: "ok",
+                                                      HUB_PARK_SRC.item_id: "ok"}
     items = {d["title"]: d for d in client.get("/api/datasets").json()["items"]}
     flat = items["赤ちゃん・ふらっと一覧"]
     assert flat["is_sample"] is False and flat["publisher"] == "東京都福祉局" and flat["license"] == "CC-BY-4.0"
@@ -99,7 +108,7 @@ def test_dataset_is_registered_with_source_metadata(client, monkeypatch, tmp_pat
     assert "404" in flat["description"] and SRC.landing_page in flat["description"]
     park = items["都市公園・都立公園一覧"]  # the representative scenario's real data
     assert park["publisher"] == "渋谷区" and park["license"] == "CC-BY" and park["updated_on"] == "2026-03-30"
-    assert park["file_url"] == PARK_CSV_URL and "面積の列は空欄" in park["description"]
+    assert park["file_url"] == PARK_CSV_URL and park["variant_group"] == opendata.PARKS_GROUP
     hub = items["子育て関連施設の利用状況"]
     assert hub["publisher"] == "渋谷区" and hub["license"] == "CC-BY-4.0" and hub["updated_on"] == "2025-04-01"
     # The search scope is recorded, including what was not found.

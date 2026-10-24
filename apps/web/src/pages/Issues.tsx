@@ -119,6 +119,16 @@ function KpiData({ kpi, onDone }: { kpi: Kpi; onDone: () => void }) {
                 {c.dataset.publisher}・{c.dataset.license}・{c.dataset.file_format.toUpperCase()}・更新 {c.dataset.updated_on}・{c.dataset.granularity}
               </p>
               <p className="mt-1 text-xs">理由: {c.reason}</p>
+              {!!c.dataset.variant_notes?.length && (
+                <ul className="mt-1 space-y-0.5 text-xs" aria-label="同じデータの別の版との違い">
+                  {c.dataset.variant_notes.map((v, i) => (
+                    <li key={i} className={v.kind === "other_version" ? "text-muted" : "text-warn"}>
+                      {v.kind === "other_version" ? "ℹ " : "⚠ "}
+                      {v.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <Button className="mt-2" variant="secondary" onClick={() => shape.mutate(c.dataset.id)} disabled={shape.isPending}>
                 {shape.isPending ? "整形案を作っています…" : "このデータを使う"}
               </Button>

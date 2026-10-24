@@ -32,6 +32,12 @@ def run_once() -> None:
         except Exception as exc:  # a broken source must not stop the API
             log.exception("scheduled ingest failed")
             opendata.record(conn, "dataset", "定期取得", "failed", f"{type(exc).__name__}: {exc}")
+    try:
+        news.classify_unassigned()  # its own connections; never holds the database during a model call
+    except Exception as exc:  # noqa: BLE001 - same rule: never stop the API
+        log.exception("news focus-area estimation failed")
+        with get_conn() as conn:
+            opendata.record(conn, "news", "注力分野の推定", "failed", f"{type(exc).__name__}: {exc}")
 
 
 async def loop() -> None:

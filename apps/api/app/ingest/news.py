@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import urldefrag, urljoin, urlparse
 
-from .. import jpdate
+from .. import jpdate, llm
+from ..db import get_conn
 from . import html, http
 from .opendata import record
 
@@ -101,10 +102,12 @@ def run(conn: sqlite3.Connection, limit: int = 30, delay: float = 0.5) -> dict:
             counts["failed"] += 1
             continue
         cat = it.categories[0] if it.categories else "その他"
+        area = FOCUS_AREA_BY_CATEGORY.get(cat, "")
         conn.execute(
-            "INSERT INTO news (title, body, category, focus_area, department, source_url, source_name, is_sample, kind,"
-            " published_at) VALUES (?,?,?,?,?,?,?,0,'local',?)",
-            (it.title, article.body, cat, FOCUS_AREA_BY_CATEGORY.get(cat, ""), article.department, it.url,
+            "INSERT INTO news (title, body, category, focus_area, focus_area_source, focus_area_reason, department,"
+            " source_url, source_name, is_sample, kind, published_at) VALUES (?,?,?,?,?,?,?,?,?,0,'local',?)",
+            (it.title, article.body, cat, area, "category" if area else "",
+             f"区のホームページの分類「{cat}」から" if area else "", article.department, it.url,
              SOURCE_NAME, it.published_at))
         record(conn, "news", it.url, "ok", it.title + ("" if article.department else "（担当課の記載なし）"))
         counts["ok"] += 1
@@ -125,3 +128,38 @@ def _fetch_article(it: ListItem) -> tuple[str, Optional[Article]]:
     if not article.body:
         return "本文を読み取れませんでした", None
     return "ok", article
+
+
+def classify_unassigned(limit: int = 100) -> dict:
+    """Estimate the focus area of articles the city's category did not map (GAP-OP-2).
+
+    Opens its own short connections so no database lock is held during a model
+    call. Stops at the first failure and leaves the rest 未判定: an AI that
+    cannot be reached must not look like a judgement.
+    """
+    from ..agents import news_area
+
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, title, body, category, department FROM news"
+            " WHERE kind = 'local' AND focus_area_source = '' ORDER BY published_at DESC LIMIT ?", (limit,))]
+    counts = {"estimated": 0, "no_area": 0, "not_judged": 0}
+    for i, row in enumerate(rows):
+        try:
+            out = news_area.estimate(row)
+        except llm.LLMUnavailable as exc:
+            counts["not_judged"] = len(rows) - i
+            with get_conn() as conn:
+                record(conn, "news", "注力分野の推定", "failed",
+                       f"AI が使えないため {counts['not_judged']} 件は未判定のまま: {exc}")
+            return counts
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE news SET focus_area = ?, focus_area_source = 'ai', focus_area_reason = ?, focus_area_by = ?"
+                " WHERE id = ? AND focus_area_source = ''",
+                (out["focus_area"], out["reason"], llm.model_name(), row["id"]))
+        counts["estimated" if out["focus_area"] else "no_area"] += 1
+    with get_conn() as conn:
+        record(conn, "news", "注力分野の推定", "ok",
+               f"{counts['estimated']} 件に分野を推定、{counts['no_area']} 件は該当なし")
+    return counts

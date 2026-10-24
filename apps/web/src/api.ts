@@ -110,6 +110,8 @@ export type Dataset = {
   updated_on: string;
   granularity: string;
   is_sample: boolean;
+  /** How this version differs from other publications of the same data (F-08). */
+  variant_notes?: { kind: "other_version" | "row_count_differs" | "empty_column" | "unreadable"; text: string; other_dataset_id: number | null }[];
 };
 
 export type IssueCard = {

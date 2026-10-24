@@ -1,7 +1,7 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Proposal } from "../api";
+import { api, type Proposal, type User } from "../api";
 import { AiBadge, Button, Card, Chip, ErrorNote, Loading, ORG_KIND_LABEL, SampleBadge } from "../components/ui";
 
 type News = {
@@ -16,7 +16,38 @@ type News = {
   published_at: string;
   kind: "local" | "policy";
   issue_card?: { id: number; title: string; dashboard_slug: string | null } | null;
+  focus_area: string;
+  focus_area_label: string;
+  focus_area_source: "" | "category" | "ai" | "person" | "sample";
+  focus_area_source_label: string;
+  focus_area_reason: string;
+  focus_area_by: string;
 };
+
+type Area = { id: string; label: string; count: number };
+
+/** 「…（子育て・教育・生涯学習）」 → 「子育て・教育・生涯学習」 for compact chips. */
+function shortArea(label: string) {
+  return label.match(/（(.+)）/)?.[1] ?? label;
+}
+
+/** Where the article's focus area came from; AI estimates and unjudged articles are never shown as facts. */
+function AreaTag({ n }: { n: News }) {
+  if (n.focus_area) {
+    const ai = n.focus_area_source === "ai";
+    return (
+      <span className={`inline-block rounded-md px-2 py-0.5 text-xs ${ai ? "bg-ai-soft text-ai" : "bg-brand-soft text-brand-strong"}`}>
+        {ai ? "🤖 " : ""}
+        {shortArea(n.focus_area_label)}（{n.focus_area_source_label}）
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block rounded-md bg-canvas px-2 py-0.5 text-xs text-muted">
+      分野: {n.focus_area_source === "" ? "未判定" : `該当なし（${n.focus_area_source_label}）`}
+    </span>
+  );
+}
 
 function PolicyBadge() {
   return <span className="inline-block rounded-md bg-brand px-2 py-0.5 text-xs font-semibold text-white">📣 施策ニュース</span>;
@@ -34,13 +65,27 @@ type Reco = { communities: { id: number; name: string; reason: string }[]; issue
 
 export function NewsList() {
   const [cat, setCat] = useState<string | null>(null);
+  const [area, setArea] = useState<string | null>(null);
+  const params = new URLSearchParams();
+  if (cat) params.set("category", cat);
+  if (area) params.set("focus_area", area);
   const q = useQuery({
-    queryKey: ["news", cat],
-    queryFn: () => api<{ categories: string[]; items: News[] }>(`/news${cat ? `?category=${encodeURIComponent(cat)}` : ""}`),
+    queryKey: ["news", cat, area],
+    queryFn: () =>
+      api<{ categories: string[]; focus_areas: Area[]; unassigned_count: number; items: News[] }>(`/news${params.size ? `?${params}` : ""}`),
   });
   return (
     <>
-      <div className="flex gap-2 overflow-x-auto pb-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap" role="group" aria-label="カテゴリで絞り込む">
+      <div className="flex gap-2 overflow-x-auto pb-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap" role="group" aria-label="注力分野で絞り込む">
+        <Chip active={area === null} onClick={() => setArea(null)}>全分野</Chip>
+        {q.data?.focus_areas.filter((a) => a.count > 0).map((a) => (
+          <Chip key={a.id} active={area === a.id} onClick={() => setArea(a.id)}>{shortArea(a.label)}（{a.count}）</Chip>
+        ))}
+        {!!q.data?.unassigned_count && (
+          <Chip active={area === "unassigned"} onClick={() => setArea("unassigned")}>分野なし・未判定（{q.data.unassigned_count}）</Chip>
+        )}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap" role="group" aria-label="区のホームページの分類で絞り込む">
         <Chip active={cat === null} onClick={() => setCat(null)}>すべて</Chip>
         {q.data?.categories.map((c) => (
           <Chip key={c} active={cat === c} onClick={() => setCat(c)}>{c}</Chip>
@@ -55,6 +100,7 @@ export function NewsList() {
               {n.kind === "policy" && <PolicyBadge />} {n.category}・{n.department}・{n.published_at} {n.is_sample && <SampleBadge />}
             </p>
             <h2 className="mt-1 font-bold">{n.title}</h2>
+            <p className="mt-1"><AreaTag n={n} /></p>
             {n.issue_card && <p className="mt-1 text-xs text-muted">区民の課題カード「{n.issue_card.title}」から</p>}
           </Card>
         </Link>
@@ -95,6 +141,7 @@ export function NewsDetail() {
           {n.kind === "policy" && <PolicyBadge />} {n.category}・{n.published_at} {n.is_sample && <SampleBadge />}
         </p>
         <h2 className="mt-1 text-lg font-bold">{n.title}</h2>
+        <FocusAreaBox n={n} />
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{n.body}</p>
         {n.issue_card && (
           <div className="mt-3 rounded-lg bg-brand-soft p-3 text-sm">
@@ -212,5 +259,76 @@ export function NewsDetail() {
         </Card>
       )}
     </>
+  );
+}
+
+
+const AREA_OPTIONS: [string, string][] = [
+  ["AREA-1", "子育て・教育・生涯学習"],
+  ["AREA-2", "福祉"],
+  ["AREA-3", "健康・スポーツ"],
+  ["AREA-4", "防災・安全・環境・エネルギー"],
+  ["AREA-5", "空間とコミュニティのデザイン"],
+  ["AREA-6", "文化・エンタテイメント"],
+  ["AREA-7", "産業振興"],
+];
+
+/** The article's focus area, where it came from and why; city staff can correct it (F-01, GAP-OP-2). */
+function FocusAreaBox({ n }: { n: News }) {
+  const qc = useQueryClient();
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<User>("/me") });
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(n.focus_area);
+  const [reason, setReason] = useState("");
+  const save = useMutation({
+    mutationFn: () => api<News>(`/news/${n.id}/focus-area`, { method: "PUT", json: { focus_area: value, reason } }),
+    onSuccess: (updated) => {
+      qc.setQueryData(["news-item", String(n.id)], updated);
+      qc.invalidateQueries({ queryKey: ["news"] });
+      setEditing(false);
+    },
+  });
+  const isStaff = me.data?.role === "staff";
+  return (
+    <div className="mt-2 text-xs">
+      <AreaTag n={n} />
+      {n.focus_area_reason && (
+        <p className="mt-1 text-muted">
+          理由: {n.focus_area_reason}
+          {n.focus_area_by ? `（${n.focus_area_source === "ai" ? "モデル" : "設定"}: ${n.focus_area_by}）` : ""}
+        </p>
+      )}
+      {isStaff && !editing && (
+        <button className="mt-1 underline" onClick={() => setEditing(true)}>分野を直す</button>
+      )}
+      {isStaff && editing && (
+        <form
+          className="mt-2 space-y-2 rounded-lg border border-line p-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <label className="block">
+            注力分野
+            <select aria-label="注力分野" className="mt-1 block w-full rounded border border-line p-1" value={value} onChange={(e) => setValue(e.target.value)}>
+              <option value="">該当なし</option>
+              {AREA_OPTIONS.map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            理由（任意）
+            <input aria-label="理由（任意）" className="mt-1 block w-full rounded border border-line p-1" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+          </label>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={save.isPending}>保存</Button>
+            <Button type="button" variant="secondary" onClick={() => setEditing(false)}>やめる</Button>
+          </div>
+          <ErrorNote error={save.error} />
+        </form>
+      )}
+    </div>
   );
 }
